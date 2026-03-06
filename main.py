@@ -323,6 +323,22 @@ def 主函数():
     _切换英文输入法()
     pygame.event.clear()  # 清除任何输入事件
 
+    # ✅ 最大化窗口
+    def _最大化窗口():
+        """自动最大化 Pygame 窗口"""
+        if sys.platform != "win32":
+            return
+        try:
+            import ctypes
+            User32 = ctypes.windll.user32
+            hwnd = User32.GetForegroundWindow()
+            SW_MAXIMIZE = 3
+            User32.ShowWindow(hwnd, SW_MAXIMIZE)
+        except Exception:
+            pass
+
+    _最大化窗口()
+
     时钟 = pygame.time.Clock()
     资源 = 默认资源路径()
 
