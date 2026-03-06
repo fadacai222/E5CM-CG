@@ -808,10 +808,15 @@ def 主函数():
                 pass
             _显示调试提示(f"F5 热重载失败：{type(e).__name__}", 2.0)
 
-    目标帧率 = 120
+    def _获取当前目标帧率() -> int:
+        try:
+            值 = int(getattr(当前场景, "目标帧率", 60) or 60)
+        except Exception:
+            值 = 60
+        return max(30, min(240, 值))
 
     while True:
-        时钟.tick_busy_loop(目标帧率)
+        时钟.tick(_获取当前目标帧率())
 
         for 事件 in pygame.event.get():
             if 事件.type == pygame.QUIT:

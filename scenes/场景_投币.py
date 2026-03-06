@@ -183,9 +183,8 @@ class 场景_投币:
         屏幕.fill((0, 0, 0))
 
         # ✅ 背景视频（连续播放）
-        帧 = self._背景视频.读取帧() if self._背景视频 else None
-        if 帧 is not None:
-            背景面 = self._cover缩放(帧, w, h)
+        背景面 = self._背景视频.读取覆盖帧(w, h) if self._背景视频 else None
+        if 背景面 is not None:
             屏幕.blit(背景面, (0, 0))
 
         if self._遮罩图:

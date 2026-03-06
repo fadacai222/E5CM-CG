@@ -252,6 +252,20 @@ class 场景_玩家选择:
         else:
             self._2p图_hover = None
 
+    def _消耗开局信用(self, 数量: int = 3):
+        状态 = self.上下文.get("状态", {})
+        if not isinstance(状态, dict):
+            return
+
+        try:
+            当前投币数 = int(状态.get("投币数", 0) or 0)
+        except Exception:
+            当前投币数 = 0
+
+        剩余投币数 = max(0, 当前投币数 - max(0, int(数量)))
+        状态["投币数"] = int(剩余投币数)
+        状态["credit"] = str(int(剩余投币数))
+
     # -------------------------
     # 生命周期
     # -------------------------
@@ -302,9 +316,8 @@ class 场景_玩家选择:
 
         # 背景（全局视频连续）
         屏幕.fill((0, 0, 0))
-        帧 = self._背景视频.读取帧() if self._背景视频 else None
-        if 帧 is not None:
-            背景面 = self._cover缩放(帧, w, h)
+        背景面 = self._背景视频.读取覆盖帧(w, h) if self._背景视频 else None
+        if 背景面 is not None:
             屏幕.blit(背景面, (0, 0))
 
         # 遮罩
@@ -364,12 +377,14 @@ class 场景_玩家选择:
             if self._1p_rect.collidepoint(事件.pos):
                 self.按钮音效.播放()
                 self._1p特效.触发()
+                self._消耗开局信用(3)
                 self.上下文["状态"]["玩家数"] = 1
                 return {"切换到": "登陆磁卡"}
 
             if self._2p_rect.collidepoint(事件.pos):
                 self.按钮音效.播放()
                 self._2p特效.触发()
+                self._消耗开局信用(3)
                 self.上下文["状态"]["玩家数"] = 2
                 return {"切换到": "登陆磁卡"}
 

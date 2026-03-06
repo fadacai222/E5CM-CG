@@ -11,6 +11,7 @@ class 场景切换请求:
 
 class 场景基类:
     名称 = "BASE"
+    目标帧率 = 60
 
     def __init__(self, 上下文: dict):
         self.上下文 = 上下文

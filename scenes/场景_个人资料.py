@@ -120,6 +120,10 @@ class 场景_个人资料:
 
         self._缓存尺寸 = (0, 0)
         self._遮罩图 = None
+        self._主界面静态缓存: Optional[pygame.Surface] = None
+        self._主界面静态缓存尺寸 = (0, 0)
+        self._头像预览缓存键 = None
+        self._头像预览缓存图: Optional[pygame.Surface] = None
 
         self._rect_top栏 = pygame.Rect(0, 0, 1, 1)
         self._rect_top标题 = pygame.Rect(0, 0, 1, 1)
@@ -199,6 +203,53 @@ class 场景_个人资料:
         y = (目标高 - nh) // 2
         画布.blit(缩放, (x, y))
         return 画布.convert_alpha() if 透明 else 画布.convert()
+
+    def _失效主界面静态缓存(self):
+        self._主界面静态缓存 = None
+        self._主界面静态缓存尺寸 = (0, 0)
+
+    def _失效头像预览缓存(self):
+        self._头像预览缓存键 = None
+        self._头像预览缓存图 = None
+
+    def _取主界面静态缓存(self) -> Optional[pygame.Surface]:
+        from core.工具 import 获取字体
+
+        屏幕 = self.上下文["屏幕"]
+        w, h = 屏幕.get_size()
+        if (
+            isinstance(self._主界面静态缓存, pygame.Surface)
+            and self._主界面静态缓存尺寸 == (w, h)
+        ):
+            return self._主界面静态缓存
+
+        缓存面 = pygame.Surface((w, h), pygame.SRCALPHA).convert_alpha()
+
+        if self._遮罩图 is not None:
+            缓存面.blit(self._遮罩图, (0, 0))
+
+        if self._top栏图 is not None:
+            缓存面.blit(self._top栏图, self._rect_top栏.topleft)
+        if self._top标题图 is not None:
+            缓存面.blit(self._top标题图, self._rect_top标题.topleft)
+        else:
+            标题字 = 获取字体(42, 是否粗体=True)
+            self._绘制文本(
+                缓存面,
+                "个人中心",
+                标题字,
+                (255, 255, 255),
+                (w // 2, self._rect_top栏.centery),
+                "center",
+            )
+
+        self._绘制_上面板(缓存面, 1.0, 255)
+        self._绘制_下面板(缓存面, 1.0, 255)
+        self._绘制_离开按钮(缓存面, 255)
+
+        self._主界面静态缓存 = 缓存面
+        self._主界面静态缓存尺寸 = (w, h)
+        return 缓存面
 
     def _缓出(self, t: float) -> float:
         if t < 0.0:
@@ -716,6 +767,7 @@ class 场景_个人资料:
             self._头像候选索引 = self._头像候选路径列表.index(当前路径)
         except Exception:
             self._头像候选索引 = 0
+        self._失效头像预览缓存()
 
     def _打开昵称二次弹窗(self):
         self._弹窗类型 = "昵称"
@@ -738,6 +790,7 @@ class 场景_个人资料:
         self._弹窗昵称输入激活 = False
         self._弹窗昵称预编辑 = ""
         self._头像待导入源路径 = ""
+        self._失效头像预览缓存()
         try:
             pygame.key.stop_text_input()
         except Exception:
@@ -812,6 +865,7 @@ class 场景_个人资料:
         self._个人资料数据 = self._个人资料_读取并修复(是否回写=False)
         self._个人资料数据["昵称"] = 文本
         self._个人资料_保存(self._个人资料数据)
+        self._失效主界面静态缓存()
         try:
             self._缓存尺寸 = (0, 0)
         except Exception:
@@ -826,6 +880,20 @@ class 场景_个人资料:
                 return None
             idx = max(0, min(len(self._头像候选路径列表) - 1, int(self._头像候选索引)))
             路径 = self._个人资料_取资源绝对路径(self._头像候选路径列表[idx])
+        try:
+            缓存键 = (
+                os.path.abspath(路径),
+                max(1, int(边长)),
+                int(os.path.getmtime(路径)),
+                int(os.path.getsize(路径)),
+            )
+        except Exception:
+            缓存键 = (os.path.abspath(路径), max(1, int(边长)))
+        if (
+            缓存键 == self._头像预览缓存键
+            and isinstance(self._头像预览缓存图, pygame.Surface)
+        ):
+            return self._头像预览缓存图
         原图 = self._安全加载图片(路径, 透明=True)
         if 原图 is None:
             return None
@@ -834,7 +902,10 @@ class 场景_个人资料:
         except Exception:
             pass
         方图 = self._cover缩放(原图, int(边长), int(边长))
-        return self._contain缩放(方图, int(边长), int(边长), 透明=True)
+        预览图 = self._contain缩放(方图, int(边长), int(边长), 透明=True)
+        self._头像预览缓存键 = 缓存键
+        self._头像预览缓存图 = 预览图
+        return 预览图
 
     def _绘制二次弹窗(self, 屏幕: pygame.Surface):
         if not self._弹窗类型:
@@ -1175,6 +1246,8 @@ class 场景_个人资料:
         if (w, h) == self._缓存尺寸:
             return
         self._缓存尺寸 = (w, h)
+        self._失效主界面静态缓存()
+        self._失效头像预览缓存()
 
         # ✅ 缩放缓存：屏幕尺寸变化时清一次，避免爆内存
         try:
@@ -1384,6 +1457,8 @@ class 场景_个人资料:
 
         self._按钮特效_截图 = None
         self._按钮特效_rect = pygame.Rect(0, 0, 1, 1)
+        self._失效主界面静态缓存()
+        self._失效头像预览缓存()
 
         # ✅ 每次进入都默认加载（方便你手动改 json 后立刻生效）
         self._布局覆盖_加载并应用(是否允许迁移=False)
@@ -1572,6 +1647,7 @@ class 场景_个人资料:
             self._缓存尺寸 = (0, 0)
         except Exception:
             pass
+        self._失效主界面静态缓存()
 
     # ---------------- 切场景（放大过渡） ----------------
     def _开始放大切场景(
@@ -1606,28 +1682,44 @@ class 场景_个人资料:
         w, h = 屏幕.get_size()
 
         屏幕.fill((0, 0, 0))
-        帧 = self._背景视频.读取帧() if self._背景视频 else None
-        if 帧 is not None:
-            背景面 = self._cover缩放(帧, w, h)
+        背景面 = self._背景视频.读取覆盖帧(w, h) if self._背景视频 else None
+        if 背景面 is not None:
             屏幕.blit(背景面, (0, 0))
 
-        if self._遮罩图 is not None:
-            屏幕.blit(self._遮罩图, (0, 0))
+        t = (time.time() - float(self._入场开始)) / max(0.001, float(self._入场时长))
+        t = self._缓出(t)
+        面板缩放 = 0.99 + 0.01 * t
+        面板透明 = max(0, min(255, int(255 * t)))
 
-        if self._top栏图 is not None:
-            屏幕.blit(self._top栏图, self._rect_top栏.topleft)
-        if self._top标题图 is not None:
-            屏幕.blit(self._top标题图, self._rect_top标题.topleft)
+        使用静态缓存 = bool(
+            (not bool(self.上下文.get("布局调试_开启", False))) and t >= 0.999
+        )
+        if 使用静态缓存:
+            静态层 = self._取主界面静态缓存()
+            if 静态层 is not None:
+                屏幕.blit(静态层, (0, 0))
         else:
-            标题字 = 获取字体(42, 是否粗体=True)  # ✅ 小一点
-            self._绘制文本(
-                屏幕,
-                "个人中心",
-                标题字,
-                (255, 255, 255),
-                (w // 2, self._rect_top栏.centery),
-                "center",
-            )
+            if self._遮罩图 is not None:
+                屏幕.blit(self._遮罩图, (0, 0))
+
+            if self._top栏图 is not None:
+                屏幕.blit(self._top栏图, self._rect_top栏.topleft)
+            if self._top标题图 is not None:
+                屏幕.blit(self._top标题图, self._rect_top标题.topleft)
+            else:
+                标题字 = 获取字体(42, 是否粗体=True)  # ✅ 小一点
+                self._绘制文本(
+                    屏幕,
+                    "个人中心",
+                    标题字,
+                    (255, 255, 255),
+                    (w // 2, self._rect_top栏.centery),
+                    "center",
+                )
+
+            self._绘制_上面板(屏幕, 面板缩放, 面板透明)
+            self._绘制_下面板(屏幕, 面板缩放, 面板透明)
+            self._绘制_离开按钮(屏幕, 面板透明)
 
         字体_credit = self.上下文["字体"].get("投币_credit字")
         信用 = "0"
@@ -1644,14 +1736,6 @@ class 场景_个人资料:
             credit数值=信用,
         )
 
-        t = (time.time() - float(self._入场开始)) / max(0.001, float(self._入场时长))
-        t = self._缓出(t)
-        面板缩放 = 0.99 + 0.01 * t
-        面板透明 = max(0, min(255, int(255 * t)))
-
-        self._绘制_上面板(屏幕, 面板缩放, 面板透明)
-        self._绘制_下面板(屏幕, 面板缩放, 面板透明)
-        self._绘制_离开按钮(屏幕, 面板透明)
         self._绘制二次弹窗(屏幕)
 
         # ✅ 如果你的 公用按钮点击特效 有绘制函数，就给它机会画；没有也不会崩
@@ -2569,6 +2653,8 @@ class 场景_个人资料:
                 self._缩放缓存 = {}
         except Exception:
             pass
+        self._失效主界面静态缓存()
+        self._失效头像预览缓存()
 
         try:
             self._缓存尺寸 = (0, 0)
@@ -2606,6 +2692,7 @@ class 场景_个人资料:
                 self._缩放缓存 = {}
         except Exception:
             pass
+        self._失效主界面静态缓存()
 
     def _弹窗_选择图片文件(self) -> Optional[str]:
         try:
