@@ -1,0 +1,645 @@
+{
+    "frames": [
+        {
+            "filename": "MovieClip10_0000.png",
+            "frame": {
+                "h": 85,
+                "w": 220,
+                "x": 0,
+                "y": 0
+            },
+            "rotated": false,
+            "sourceSize": {
+                "h": 85,
+                "w": 220
+            },
+            "spriteSourceSize": {
+                "h": 85,
+                "w": 220,
+                "x": 0,
+                "y": 0
+            },
+            "trimmed": false
+        },
+        {
+            "filename": "MovieClip10_0001.png",
+            "frame": {
+                "h": 85,
+                "w": 220,
+                "x": 220,
+                "y": 0
+            },
+            "rotated": false,
+            "sourceSize": {
+                "h": 85,
+                "w": 220
+            },
+            "spriteSourceSize": {
+                "h": 85,
+                "w": 220,
+                "x": 0,
+                "y": 0
+            },
+            "trimmed": false
+        },
+        {
+            "filename": "MovieClip10_0002.png",
+            "frame": {
+                "h": 85,
+                "w": 220,
+                "x": 440,
+                "y": 0
+            },
+            "rotated": false,
+            "sourceSize": {
+                "h": 85,
+                "w": 220
+            },
+            "spriteSourceSize": {
+                "h": 85,
+                "w": 220,
+                "x": 0,
+                "y": 0
+            },
+            "trimmed": false
+        },
+        {
+            "filename": "MovieClip10_0003.png",
+            "frame": {
+                "h": 85,
+                "w": 220,
+                "x": 660,
+                "y": 0
+            },
+            "rotated": false,
+            "sourceSize": {
+                "h": 85,
+                "w": 220
+            },
+            "spriteSourceSize": {
+                "h": 85,
+                "w": 220,
+                "x": 0,
+                "y": 0
+            },
+            "trimmed": false
+        },
+        {
+            "filename": "MovieClip10_0004.png",
+            "frame": {
+                "h": 85,
+                "w": 220,
+                "x": 0,
+                "y": 85
+            },
+            "rotated": false,
+            "sourceSize": {
+                "h": 85,
+                "w": 220
+            },
+            "spriteSourceSize": {
+                "h": 85,
+                "w": 220,
+                "x": 0,
+                "y": 0
+            },
+            "trimmed": false
+        },
+        {
+            "filename": "MovieClip10_0005.png",
+            "frame": {
+                "h": 85,
+                "w": 220,
+                "x": 220,
+                "y": 85
+            },
+            "rotated": false,
+            "sourceSize": {
+                "h": 85,
+                "w": 220
+            },
+            "spriteSourceSize": {
+                "h": 85,
+                "w": 220,
+                "x": 0,
+                "y": 0
+            },
+            "trimmed": false
+        },
+        {
+            "filename": "MovieClip10_0006.png",
+            "frame": {
+                "h": 85,
+                "w": 220,
+                "x": 440,
+                "y": 85
+            },
+            "rotated": false,
+            "sourceSize": {
+                "h": 85,
+                "w": 220
+            },
+            "spriteSourceSize": {
+                "h": 85,
+                "w": 220,
+                "x": 0,
+                "y": 0
+            },
+            "trimmed": false
+        },
+        {
+            "filename": "MovieClip10_0007.png",
+            "frame": {
+                "h": 85,
+                "w": 220,
+                "x": 660,
+                "y": 85
+            },
+            "rotated": false,
+            "sourceSize": {
+                "h": 85,
+                "w": 220
+            },
+            "spriteSourceSize": {
+                "h": 85,
+                "w": 220,
+                "x": 0,
+                "y": 0
+            },
+            "trimmed": false
+        },
+        {
+            "filename": "MovieClip10_0008.png",
+            "frame": {
+                "h": 85,
+                "w": 220,
+                "x": 0,
+                "y": 170
+            },
+            "rotated": false,
+            "sourceSize": {
+                "h": 85,
+                "w": 220
+            },
+            "spriteSourceSize": {
+                "h": 85,
+                "w": 220,
+                "x": 0,
+                "y": 0
+            },
+            "trimmed": false
+        },
+        {
+            "filename": "MovieClip10_0009.png",
+            "frame": {
+                "h": 85,
+                "w": 220,
+                "x": 220,
+                "y": 170
+            },
+            "rotated": false,
+            "sourceSize": {
+                "h": 85,
+                "w": 220
+            },
+            "spriteSourceSize": {
+                "h": 85,
+                "w": 220,
+                "x": 0,
+                "y": 0
+            },
+            "trimmed": false
+        },
+        {
+            "filename": "MovieClip10_0010.png",
+            "frame": {
+                "h": 85,
+                "w": 220,
+                "x": 440,
+                "y": 170
+            },
+            "rotated": false,
+            "sourceSize": {
+                "h": 85,
+                "w": 220
+            },
+            "spriteSourceSize": {
+                "h": 85,
+                "w": 220,
+                "x": 0,
+                "y": 0
+            },
+            "trimmed": false
+        },
+        {
+            "filename": "MovieClip10_0011.png",
+            "frame": {
+                "h": 85,
+                "w": 220,
+                "x": 660,
+                "y": 170
+            },
+            "rotated": false,
+            "sourceSize": {
+                "h": 85,
+                "w": 220
+            },
+            "spriteSourceSize": {
+                "h": 85,
+                "w": 220,
+                "x": 0,
+                "y": 0
+            },
+            "trimmed": false
+        },
+        {
+            "filename": "MovieClip10_0012.png",
+            "frame": {
+                "h": 85,
+                "w": 220,
+                "x": 0,
+                "y": 255
+            },
+            "rotated": false,
+            "sourceSize": {
+                "h": 85,
+                "w": 220
+            },
+            "spriteSourceSize": {
+                "h": 85,
+                "w": 220,
+                "x": 0,
+                "y": 0
+            },
+            "trimmed": false
+        },
+        {
+            "filename": "MovieClip10_0013.png",
+            "frame": {
+                "h": 85,
+                "w": 220,
+                "x": 220,
+                "y": 255
+            },
+            "rotated": false,
+            "sourceSize": {
+                "h": 85,
+                "w": 220
+            },
+            "spriteSourceSize": {
+                "h": 85,
+                "w": 220,
+                "x": 0,
+                "y": 0
+            },
+            "trimmed": false
+        },
+        {
+            "filename": "MovieClip10_0014.png",
+            "frame": {
+                "h": 85,
+                "w": 220,
+                "x": 440,
+                "y": 255
+            },
+            "rotated": false,
+            "sourceSize": {
+                "h": 85,
+                "w": 220
+            },
+            "spriteSourceSize": {
+                "h": 85,
+                "w": 220,
+                "x": 0,
+                "y": 0
+            },
+            "trimmed": false
+        },
+        {
+            "filename": "MovieClip10_0015.png",
+            "frame": {
+                "h": 85,
+                "w": 220,
+                "x": 660,
+                "y": 255
+            },
+            "rotated": false,
+            "sourceSize": {
+                "h": 85,
+                "w": 220
+            },
+            "spriteSourceSize": {
+                "h": 85,
+                "w": 220,
+                "x": 0,
+                "y": 0
+            },
+            "trimmed": false
+        },
+        {
+            "filename": "MovieClip10_0016.png",
+            "frame": {
+                "h": 85,
+                "w": 220,
+                "x": 0,
+                "y": 340
+            },
+            "rotated": false,
+            "sourceSize": {
+                "h": 85,
+                "w": 220
+            },
+            "spriteSourceSize": {
+                "h": 85,
+                "w": 220,
+                "x": 0,
+                "y": 0
+            },
+            "trimmed": false
+        },
+        {
+            "filename": "MovieClip10_0017.png",
+            "frame": {
+                "h": 85,
+                "w": 220,
+                "x": 220,
+                "y": 340
+            },
+            "rotated": false,
+            "sourceSize": {
+                "h": 85,
+                "w": 220
+            },
+            "spriteSourceSize": {
+                "h": 85,
+                "w": 220,
+                "x": 0,
+                "y": 0
+            },
+            "trimmed": false
+        },
+        {
+            "filename": "MovieClip10_0018.png",
+            "frame": {
+                "h": 85,
+                "w": 220,
+                "x": 440,
+                "y": 340
+            },
+            "rotated": false,
+            "sourceSize": {
+                "h": 85,
+                "w": 220
+            },
+            "spriteSourceSize": {
+                "h": 85,
+                "w": 220,
+                "x": 0,
+                "y": 0
+            },
+            "trimmed": false
+        },
+        {
+            "filename": "MovieClip10_0019.png",
+            "frame": {
+                "h": 85,
+                "w": 220,
+                "x": 660,
+                "y": 340
+            },
+            "rotated": false,
+            "sourceSize": {
+                "h": 85,
+                "w": 220
+            },
+            "spriteSourceSize": {
+                "h": 85,
+                "w": 220,
+                "x": 0,
+                "y": 0
+            },
+            "trimmed": false
+        },
+        {
+            "filename": "MovieClip10_0020.png",
+            "frame": {
+                "h": 85,
+                "w": 220,
+                "x": 0,
+                "y": 425
+            },
+            "rotated": false,
+            "sourceSize": {
+                "h": 85,
+                "w": 220
+            },
+            "spriteSourceSize": {
+                "h": 85,
+                "w": 220,
+                "x": 0,
+                "y": 0
+            },
+            "trimmed": false
+        },
+        {
+            "filename": "MovieClip10_0021.png",
+            "frame": {
+                "h": 85,
+                "w": 220,
+                "x": 220,
+                "y": 425
+            },
+            "rotated": false,
+            "sourceSize": {
+                "h": 85,
+                "w": 220
+            },
+            "spriteSourceSize": {
+                "h": 85,
+                "w": 220,
+                "x": 0,
+                "y": 0
+            },
+            "trimmed": false
+        },
+        {
+            "filename": "MovieClip10_0022.png",
+            "frame": {
+                "h": 85,
+                "w": 220,
+                "x": 440,
+                "y": 425
+            },
+            "rotated": false,
+            "sourceSize": {
+                "h": 85,
+                "w": 220
+            },
+            "spriteSourceSize": {
+                "h": 85,
+                "w": 220,
+                "x": 0,
+                "y": 0
+            },
+            "trimmed": false
+        },
+        {
+            "filename": "MovieClip10_0023.png",
+            "frame": {
+                "h": 85,
+                "w": 220,
+                "x": 660,
+                "y": 425
+            },
+            "rotated": false,
+            "sourceSize": {
+                "h": 85,
+                "w": 220
+            },
+            "spriteSourceSize": {
+                "h": 85,
+                "w": 220,
+                "x": 0,
+                "y": 0
+            },
+            "trimmed": false
+        },
+        {
+            "filename": "MovieClip10_0024.png",
+            "frame": {
+                "h": 85,
+                "w": 220,
+                "x": 0,
+                "y": 510
+            },
+            "rotated": false,
+            "sourceSize": {
+                "h": 85,
+                "w": 220
+            },
+            "spriteSourceSize": {
+                "h": 85,
+                "w": 220,
+                "x": 0,
+                "y": 0
+            },
+            "trimmed": false
+        },
+        {
+            "filename": "MovieClip10_0025.png",
+            "frame": {
+                "h": 85,
+                "w": 220,
+                "x": 220,
+                "y": 510
+            },
+            "rotated": false,
+            "sourceSize": {
+                "h": 85,
+                "w": 220
+            },
+            "spriteSourceSize": {
+                "h": 85,
+                "w": 220,
+                "x": 0,
+                "y": 0
+            },
+            "trimmed": false
+        },
+        {
+            "filename": "MovieClip10_0026.png",
+            "frame": {
+                "h": 85,
+                "w": 220,
+                "x": 440,
+                "y": 510
+            },
+            "rotated": false,
+            "sourceSize": {
+                "h": 85,
+                "w": 220
+            },
+            "spriteSourceSize": {
+                "h": 85,
+                "w": 220,
+                "x": 0,
+                "y": 0
+            },
+            "trimmed": false
+        },
+        {
+            "filename": "MovieClip10_0027.png",
+            "frame": {
+                "h": 85,
+                "w": 220,
+                "x": 660,
+                "y": 510
+            },
+            "rotated": false,
+            "sourceSize": {
+                "h": 85,
+                "w": 220
+            },
+            "spriteSourceSize": {
+                "h": 85,
+                "w": 220,
+                "x": 0,
+                "y": 0
+            },
+            "trimmed": false
+        },
+        {
+            "filename": "MovieClip10_0028.png",
+            "frame": {
+                "h": 85,
+                "w": 220,
+                "x": 0,
+                "y": 595
+            },
+            "rotated": false,
+            "sourceSize": {
+                "h": 85,
+                "w": 220
+            },
+            "spriteSourceSize": {
+                "h": 85,
+                "w": 220,
+                "x": 0,
+                "y": 0
+            },
+            "trimmed": false
+        },
+        {
+            "filename": "MovieClip10_0029.png",
+            "frame": {
+                "h": 85,
+                "w": 220,
+                "x": 220,
+                "y": 595
+            },
+            "rotated": false,
+            "sourceSize": {
+                "h": 85,
+                "w": 220
+            },
+            "spriteSourceSize": {
+                "h": 85,
+                "w": 220,
+                "x": 0,
+                "y": 0
+            },
+            "trimmed": false
+        }
+    ],
+    "meta": {
+        "app": "askin",
+        "format": "RGBA8888",
+        "image": "skin.png",
+        "scale": 1,
+        "size": {
+            "h": 680,
+            "w": 880
+        },
+        "version": "1.0"
+    }
+}
