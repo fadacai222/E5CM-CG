@@ -6598,7 +6598,13 @@ class 选歌游戏:
         except Exception:
             pass
 
-    def _启动过渡(self, 特效对象, 目标矩形: pygame.Rect, 回调: Callable[[], None]):
+    def _启动过渡(
+        self,
+        特效对象,
+        目标矩形: pygame.Rect,
+        回调: Callable[[], None],
+        覆盖图片: Optional[pygame.Surface] = None,
+    ):
         """
         ✅ 所有按钮/卡片/大图确认都走这个入口：
         - 默认播放统一按钮音效
@@ -6648,17 +6654,24 @@ class 选歌游戏:
         if 是否播放全局按钮音效:
             self._播放按钮音效()
 
-        # 截图：一定要 clip 到屏幕范围，否则 subsurface 会崩
-        try:
-            屏幕矩形 = self.屏幕.get_rect()
-            r = 目标矩形.clip(屏幕矩形)
-            if r.w <= 0 or r.h <= 0:
-                r = pygame.Rect(max(0, 目标矩形.x), max(0, 目标矩形.y), 2, 2)
-                r = r.clip(屏幕矩形)
-            图片 = self.屏幕.subsurface(r).copy()
-        except Exception:
+        if 覆盖图片 is not None:
             r = 目标矩形.copy()
-            图片 = None
+            try:
+                图片 = 覆盖图片.copy().convert_alpha()
+            except Exception:
+                图片 = 覆盖图片
+        else:
+            # 截图：一定要 clip 到屏幕范围，否则 subsurface 会崩
+            try:
+                屏幕矩形 = self.屏幕.get_rect()
+                r = 目标矩形.clip(屏幕矩形)
+                if r.w <= 0 or r.h <= 0:
+                    r = pygame.Rect(max(0, 目标矩形.x), max(0, 目标矩形.y), 2, 2)
+                    r = r.clip(屏幕矩形)
+                图片 = self.屏幕.subsurface(r).copy()
+            except Exception:
+                r = 目标矩形.copy()
+                图片 = None
 
         try:
             特效对象.触发()
@@ -6996,12 +7009,18 @@ class 选歌游戏:
 
                     if 上一首触发:
                         self._启动过渡(
-                            self._特效_按钮, self.按钮_详情上一首.矩形, self.上一首
+                            self._特效_按钮,
+                            self.按钮_详情上一首.矩形,
+                            self.上一首,
+                            覆盖图片=self.按钮_详情上一首._获取缩放图(),
                         )
                         continue
                     if 下一首触发:
                         self._启动过渡(
-                            self._特效_按钮, self.按钮_详情下一首.矩形, self.下一首
+                            self._特效_按钮,
+                            self.按钮_详情下一首.矩形,
+                            self.下一首,
+                            覆盖图片=self.按钮_详情下一首._获取缩放图(),
                         )
                         continue
 
@@ -7439,10 +7458,20 @@ def 选歌_处理事件_外部(self, 事件):
             下一首触发 = self.按钮_详情下一首.处理事件(事件)
 
             if 上一首触发:
-                self._启动过渡(self._特效_按钮, self.按钮_详情上一首.矩形, self.上一首)
+                self._启动过渡(
+                    self._特效_按钮,
+                    self.按钮_详情上一首.矩形,
+                    self.上一首,
+                    覆盖图片=self.按钮_详情上一首._获取缩放图(),
+                )
                 return None
             if 下一首触发:
-                self._启动过渡(self._特效_按钮, self.按钮_详情下一首.矩形, self.下一首)
+                self._启动过渡(
+                    self._特效_按钮,
+                    self.按钮_详情下一首.矩形,
+                    self.下一首,
+                    覆盖图片=self.按钮_详情下一首._获取缩放图(),
+                )
                 return None
         except Exception:
             pass
