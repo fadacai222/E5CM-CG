@@ -1,7 +1,7 @@
 {
-  "show_bounds": false,
+  "show_bounds": true,
   "show_names": false,
-  "show_help": false,
+  "show_help": true,
   "panels": {
     "visual": {
       "rect": [
