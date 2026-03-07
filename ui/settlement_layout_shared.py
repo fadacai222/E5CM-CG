@@ -130,7 +130,9 @@ def color_text(color: Color) -> str:
     return "#{:02X}{:02X}{:02X}".format(*color)
 
 
-def fit_size(src_size: Tuple[int, int], dst_size: Tuple[int, int], mode: str) -> Tuple[int, int]:
+def fit_size(
+    src_size: Tuple[int, int], dst_size: Tuple[int, int], mode: str
+) -> Tuple[int, int]:
     sw, sh = src_size
     dw, dh = max(1, int(dst_size[0])), max(1, int(dst_size[1]))
     if sw <= 0 or sh <= 0:
@@ -161,12 +163,19 @@ def render_text_surface(
     glyphs: List[pygame.Surface] = []
     for char in text:
         glyphs.append(font.render(char, True, color).convert_alpha())
-    total_width = sum(g.get_width() for g in glyphs) + max(0, len(glyphs) - 1) * int(letter_spacing)
+    total_width = sum(g.get_width() for g in glyphs) + max(0, len(glyphs) - 1) * int(
+        letter_spacing
+    )
     total_height = max((g.get_height() for g in glyphs), default=max(1, size))
     stroke = max(0, int(stroke_width))
-    canvas = pygame.Surface((max(1, total_width + stroke * 2), max(1, total_height + stroke * 2)), pygame.SRCALPHA)
+    canvas = pygame.Surface(
+        (max(1, total_width + stroke * 2), max(1, total_height + stroke * 2)),
+        pygame.SRCALPHA,
+    )
     if stroke > 0:
-        stroke_glyphs = [font.render(char, True, stroke_color).convert_alpha() for char in text]
+        stroke_glyphs = [
+            font.render(char, True, stroke_color).convert_alpha() for char in text
+        ]
         x = stroke
         for glyph in stroke_glyphs:
             for ox in range(-stroke, stroke + 1):
@@ -198,7 +207,9 @@ def _panel_rect(screen_size: Tuple[int, int], player_index: int = 1) -> pygame.R
     return pygame.Rect(int(x), int(y), int(size), int(size))
 
 
-def _reward_rect(panel_rect: pygame.Rect, screen_size: Tuple[int, int], player_index: int = 1) -> pygame.Rect:
+def _reward_rect(
+    panel_rect: pygame.Rect, screen_size: Tuple[int, int], player_index: int = 1
+) -> pygame.Rect:
     screen_w, screen_h = int(screen_size[0]), int(screen_size[1])
     width = int(min(max(380, screen_w * 0.36), 620))
     height = int(max(190, width * 0.50))
@@ -308,7 +319,9 @@ def build_default_layout(
     prompt_h = int(max(96, screen_h * 0.16))
 
     layers = {
-        "background": _image_layer("background", "背景图", (0, 0, screen_w, screen_h), "background", 0, "cover"),
+        "background": _image_layer(
+            "background", "背景图", (0, 0, screen_w, screen_h), "background", 0, "cover"
+        ),
         "dimmer": {
             "id": "dimmer",
             "name": "背景压暗",
@@ -319,148 +332,377 @@ def build_default_layout(
             "fill_color": [0, 0, 0, 120],
             "group": "",
         },
-        "panel": _image_layer("panel", "结算面板", tuple(panel), "panel", 10, "stretch"),
-        "cover": _image_layer("cover", "封面区", tuple(_ref_rect(panel, 58, 138, 126, 134)), "cover", 20, "cover"),
+        "panel": _image_layer(
+            "panel", "结算面板", tuple(panel), "panel", 10, "stretch"
+        ),
+        "cover": _image_layer(
+            "cover",
+            "封面区",
+            tuple(_ref_rect(panel, 58, 138, 126, 134)),
+            "cover",
+            20,
+            "cover",
+        ),
         "stars": _text_layer(
-            "stars", "星级", tuple(_ref_rect(panel, 48, 304, 150, 28)), "星级", 22,
-            value_type="stars", color=(242, 223, 60), font_size=24, align="left"
+            "stars",
+            "星级",
+            tuple(_ref_rect(panel, 48, 304, 150, 28)),
+            "星级",
+            22,
+            value_type="stars",
+            color=(242, 223, 60),
+            font_size=24,
+            align="left",
         ),
         "song_title": _text_layer(
-            "song_title", "歌名", tuple(_ref_rect(panel, 46, 332, 168, 38)), "歌名", 23,
-            font_size=26, align="left"
+            "song_title",
+            "歌名",
+            tuple(_ref_rect(panel, 46, 332, 168, 38)),
+            "歌名",
+            23,
+            font_size=26,
+            align="left",
         ),
         "miss": _text_layer(
-            "miss", "MISS", tuple(_ref_rect(panel, 285, 129, 160, 40)), "miss", 24,
-            value_type="number", color=(255, 255, 255), stroke_color=(166, 19, 27), stroke_width=1,
-            font_size=42, align="right"
+            "miss",
+            "MISS",
+            tuple(_ref_rect(panel, 285, 129, 160, 40)),
+            "miss",
+            24,
+            value_type="number",
+            color=(255, 255, 255),
+            stroke_color=(166, 19, 27),
+            stroke_width=1,
+            font_size=42,
+            align="right",
         ),
         "good": _text_layer(
-            "good", "GOOD", tuple(_ref_rect(panel, 285, 176, 160, 40)), "good", 24,
-            value_type="number", color=(255, 255, 255), stroke_color=(49, 74, 25), stroke_width=1,
-            font_size=42, align="right"
+            "good",
+            "GOOD",
+            tuple(_ref_rect(panel, 285, 176, 160, 40)),
+            "good",
+            24,
+            value_type="number",
+            color=(255, 255, 255),
+            stroke_color=(49, 74, 25),
+            stroke_width=1,
+            font_size=42,
+            align="right",
         ),
         "cool": _text_layer(
-            "cool", "COOL", tuple(_ref_rect(panel, 285, 223, 160, 40)), "cool", 24,
-            value_type="number", color=(255, 255, 255), stroke_color=(12, 9, 69), stroke_width=1,
-            font_size=42, align="right"
+            "cool",
+            "COOL",
+            tuple(_ref_rect(panel, 285, 223, 160, 40)),
+            "cool",
+            24,
+            value_type="number",
+            color=(255, 255, 255),
+            stroke_color=(12, 9, 69),
+            stroke_width=1,
+            font_size=42,
+            align="right",
         ),
         "perfect": _text_layer(
-            "perfect", "PERFECT", tuple(_ref_rect(panel, 285, 271, 160, 40)), "perfect", 24,
-            value_type="number", color=(255, 255, 255), stroke_color=(113, 19, 61), stroke_width=1,
-            font_size=42, align="right"
+            "perfect",
+            "PERFECT",
+            tuple(_ref_rect(panel, 285, 271, 160, 40)),
+            "perfect",
+            24,
+            value_type="number",
+            color=(255, 255, 255),
+            stroke_color=(113, 19, 61),
+            stroke_width=1,
+            font_size=42,
+            align="right",
         ),
         "combo": _text_layer(
-            "combo", "COMBO", tuple(_ref_rect(panel, 285, 318, 160, 40)), "combo", 24,
-            value_type="number", color=(255, 255, 255), stroke_color=(56, 33, 113), stroke_width=1,
-            font_size=42, align="right"
+            "combo",
+            "COMBO",
+            tuple(_ref_rect(panel, 285, 318, 160, 40)),
+            "combo",
+            24,
+            value_type="number",
+            color=(255, 255, 255),
+            stroke_color=(56, 33, 113),
+            stroke_width=1,
+            font_size=42,
+            align="right",
         ),
         "accuracy": _text_layer(
-            "accuracy", "准确率", tuple(_ref_rect(panel, 250, 372, 195, 40)), "accuracy", 24,
-            value_type="percent", color=(255, 255, 255), stroke_color=(223, 193, 61), stroke_width=1,
-            font_size=42, align="right"
+            "accuracy",
+            "准确率",
+            tuple(_ref_rect(panel, 250, 372, 195, 40)),
+            "accuracy",
+            24,
+            value_type="percent",
+            color=(255, 255, 255),
+            stroke_color=(223, 193, 61),
+            stroke_width=1,
+            font_size=42,
+            align="right",
         ),
         "score": _text_layer(
-            "score", "总分", tuple(_ref_rect(panel, 230, 428, 220, 48)), "score", 24,
-            value_type="number", font_size=44, align="center"
+            "score",
+            "总分",
+            tuple(_ref_rect(panel, 230, 428, 220, 48)),
+            "score",
+            24,
+            value_type="number",
+            font_size=44,
+            align="center",
         ),
         "grade_left": _image_layer(
             "grade_left",
             "评级左",
-            (main_grade_center[0] - side_gap - int(main_grade_w * 0.34), main_grade_center[1] - int(main_grade_h * 0.28), int(main_grade_w * 0.68), int(main_grade_h * 0.68)),
+            (
+                main_grade_center[0] - side_gap - int(main_grade_w * 0.34),
+                main_grade_center[1] - int(main_grade_h * 0.28),
+                int(main_grade_w * 0.68),
+                int(main_grade_h * 0.68),
+            ),
             "grade_s",
             30,
         ),
         "grade_main": _image_layer(
             "grade_main",
             "评级主",
-            (main_grade_center[0] - main_grade_w // 2, main_grade_center[1] - main_grade_h // 2, main_grade_w, main_grade_h),
+            (
+                main_grade_center[0] - main_grade_w // 2,
+                main_grade_center[1] - main_grade_h // 2,
+                main_grade_w,
+                main_grade_h,
+            ),
             "grade_s",
             31,
         ),
         "grade_right": _image_layer(
             "grade_right",
             "评级右",
-            (main_grade_center[0] + side_gap - int(main_grade_w * 0.34), main_grade_center[1] - int(main_grade_h * 0.28), int(main_grade_w * 0.68), int(main_grade_h * 0.68)),
+            (
+                main_grade_center[0] + side_gap - int(main_grade_w * 0.34),
+                main_grade_center[1] - int(main_grade_h * 0.28),
+                int(main_grade_w * 0.68),
+                int(main_grade_h * 0.68),
+            ),
             "grade_s",
             30,
         ),
         "top_badge": _image_layer(
             "top_badge",
             "顶部标",
-            (panel.centerx - top_badge_w // 2, int(panel.top + panel.h * 0.10) - top_badge_h // 2, top_badge_w, top_badge_h),
+            (
+                panel.centerx - top_badge_w // 2,
+                int(panel.top + panel.h * 0.10) - top_badge_h // 2,
+                top_badge_w,
+                top_badge_h,
+            ),
             "top_badge",
             40,
         ),
         "new_record": _image_layer(
             "new_record",
             "新纪录",
-            (panel.right - int(panel.w * 0.04) - new_record_w // 2, int(panel.top + panel.h * 0.11) - new_record_h // 2, new_record_w, new_record_h),
+            (
+                panel.right - int(panel.w * 0.04) - new_record_w // 2,
+                int(panel.top + panel.h * 0.11) - new_record_h // 2,
+                new_record_w,
+                new_record_h,
+            ),
             "new_record",
             41,
         ),
-        "reward_bg": _image_layer("reward_bg", "等级小框", tuple(reward), "reward_bg", 50, "stretch", group="reward"),
+        "reward_bg": _image_layer(
+            "reward_bg",
+            "等级小框",
+            tuple(reward),
+            "reward_bg",
+            50,
+            "stretch",
+            group="reward",
+        ),
         "reward_digits": _image_layer(
             "reward_digits",
             "经验数字",
-            (reward.x + int(reward.w * 0.09), reward.y + int(reward.h * 0.06), int(reward.w * 0.24), int(reward.h * 0.28)),
+            (
+                reward.x + int(reward.w * 0.09),
+                reward.y + int(reward.h * 0.06),
+                int(reward.w * 0.24),
+                int(reward.h * 0.28),
+            ),
             "digits",
             54,
             group="reward",
         ),
         "style_label": _text_layer(
-            "style_label", "花式标签", (reward.x + 16, reward.y + int(reward.h * 0.40), 80, 32), "花式", 55,
-            font_size=18, align="left", group="reward"
+            "style_label",
+            "花式标签",
+            (reward.x + 16, reward.y + int(reward.h * 0.40), 80, 32),
+            "花式",
+            55,
+            font_size=18,
+            align="left",
+            group="reward",
         ),
         "style_fill": _image_layer(
-            "style_fill", "花式经验值", (reward.x + int(reward.w * 0.18), reward.y + int(reward.h * 0.425), int(reward.w * 0.58), int(reward.h * 0.08)), "style_fill", 56, "stretch", group="reward"
+            "style_fill",
+            "花式经验值",
+            (
+                reward.x + int(reward.w * 0.18),
+                reward.y + int(reward.h * 0.425),
+                int(reward.w * 0.58),
+                int(reward.h * 0.08),
+            ),
+            "style_fill",
+            56,
+            "stretch",
+            group="reward",
         ),
         "style_frame": _image_layer(
-            "style_frame", "花式经验框", (reward.x + int(reward.w * 0.18), reward.y + int(reward.h * 0.425), int(reward.w * 0.58), int(reward.h * 0.08)), "style_frame", 57, "stretch", group="reward"
+            "style_frame",
+            "花式经验框",
+            (
+                reward.x + int(reward.w * 0.18),
+                reward.y + int(reward.h * 0.425),
+                int(reward.w * 0.58),
+                int(reward.h * 0.08),
+            ),
+            "style_frame",
+            57,
+            "stretch",
+            group="reward",
         ),
         "style_lv": _text_layer(
-            "style_lv", "花式等级", (reward.x + int(reward.w * 0.79), reward.y + int(reward.h * 0.40), 110, 34), "花式等级", 58,
-            value_type="level", font_size=22, align="left", group="reward"
+            "style_lv",
+            "花式等级",
+            (reward.x + int(reward.w * 0.79), reward.y + int(reward.h * 0.40), 110, 34),
+            "花式等级",
+            58,
+            value_type="level",
+            font_size=22,
+            align="left",
+            group="reward",
         ),
         "speed_label": _text_layer(
-            "speed_label", "竞速标签", (reward.x + 16, reward.y + int(reward.h * 0.56), 80, 32), "竞速", 55,
-            font_size=18, align="left", group="reward"
+            "speed_label",
+            "竞速标签",
+            (reward.x + 16, reward.y + int(reward.h * 0.56), 80, 32),
+            "竞速",
+            55,
+            font_size=18,
+            align="left",
+            group="reward",
         ),
         "speed_fill": _image_layer(
-            "speed_fill", "竞速经验值", (reward.x + int(reward.w * 0.18), reward.y + int(reward.h * 0.585), int(reward.w * 0.58), int(reward.h * 0.08)), "speed_fill", 56, "stretch", group="reward"
+            "speed_fill",
+            "竞速经验值",
+            (
+                reward.x + int(reward.w * 0.18),
+                reward.y + int(reward.h * 0.585),
+                int(reward.w * 0.58),
+                int(reward.h * 0.08),
+            ),
+            "speed_fill",
+            56,
+            "stretch",
+            group="reward",
         ),
         "speed_frame": _image_layer(
-            "speed_frame", "竞速经验框", (reward.x + int(reward.w * 0.18), reward.y + int(reward.h * 0.585), int(reward.w * 0.58), int(reward.h * 0.08)), "speed_frame", 57, "stretch", group="reward"
+            "speed_frame",
+            "竞速经验框",
+            (
+                reward.x + int(reward.w * 0.18),
+                reward.y + int(reward.h * 0.585),
+                int(reward.w * 0.58),
+                int(reward.h * 0.08),
+            ),
+            "speed_frame",
+            57,
+            "stretch",
+            group="reward",
         ),
         "speed_lv": _text_layer(
-            "speed_lv", "竞速等级", (reward.x + int(reward.w * 0.79), reward.y + int(reward.h * 0.56), 110, 34), "竞速等级", 58,
-            value_type="level", font_size=22, align="left", group="reward"
+            "speed_lv",
+            "竞速等级",
+            (reward.x + int(reward.w * 0.79), reward.y + int(reward.h * 0.56), 110, 34),
+            "竞速等级",
+            58,
+            value_type="level",
+            font_size=22,
+            align="left",
+            group="reward",
         ),
         "rank_icon": _image_layer(
-            "rank_icon", "段位图标", (reward.x + int(reward.w * 0.12), reward.y + int(reward.h * 0.68), int(reward.h * 0.28), int(reward.h * 0.28)), "rank", 58, group="reward"
+            "rank_icon",
+            "段位图标",
+            (
+                reward.x + int(reward.w * 0.12),
+                reward.y + int(reward.h * 0.68),
+                int(reward.h * 0.28),
+                int(reward.h * 0.28),
+            ),
+            "rank",
+            58,
+            group="reward",
         ),
         "rank_label": _text_layer(
-            "rank_label", "段位文字", (reward.x + int(reward.w * 0.29), reward.y + int(reward.h * 0.72), 160, 34), "当前段位", 58,
-            font_size=22, align="left", group="reward"
+            "rank_label",
+            "段位文字",
+            (reward.x + int(reward.w * 0.29), reward.y + int(reward.h * 0.72), 160, 34),
+            "当前段位",
+            58,
+            font_size=22,
+            align="left",
+            group="reward",
         ),
         "upgrade_center": _image_layer(
-            "upgrade_center", "升级中", (reward.centerx - 86, reward.y + int(reward.h * 0.24) - 26, 172, 52), "upgrade_center", 59, group="reward"
+            "upgrade_center",
+            "升级中",
+            (reward.centerx - 86, reward.y + int(reward.h * 0.24) - 26, 172, 52),
+            "upgrade_center",
+            59,
+            group="reward",
         ),
         "upgrade_lt": _image_layer(
-            "upgrade_lt", "升级左上", (reward.centerx - 96, reward.y + int(reward.h * 0.24) - 96, 54, 54), "upgrade_lt", 58, group="reward"
+            "upgrade_lt",
+            "升级左上",
+            (reward.centerx - 96, reward.y + int(reward.h * 0.24) - 96, 54, 54),
+            "upgrade_lt",
+            58,
+            group="reward",
         ),
         "upgrade_rt": _image_layer(
-            "upgrade_rt", "升级右上", (reward.centerx + 42, reward.y + int(reward.h * 0.24) - 96, 54, 54), "upgrade_rt", 58, group="reward"
+            "upgrade_rt",
+            "升级右上",
+            (reward.centerx + 42, reward.y + int(reward.h * 0.24) - 96, 54, 54),
+            "upgrade_rt",
+            58,
+            group="reward",
         ),
         "upgrade_lb": _image_layer(
-            "upgrade_lb", "升级左下", (reward.centerx - 96, reward.y + int(reward.h * 0.24) + 42, 54, 54), "upgrade_lb", 58, group="reward"
+            "upgrade_lb",
+            "升级左下",
+            (reward.centerx - 96, reward.y + int(reward.h * 0.24) + 42, 54, 54),
+            "upgrade_lb",
+            58,
+            group="reward",
         ),
         "upgrade_rb": _image_layer(
-            "upgrade_rb", "升级右下", (reward.centerx + 42, reward.y + int(reward.h * 0.24) + 42, 54, 54), "upgrade_rb", 58, group="reward"
+            "upgrade_rb",
+            "升级右下",
+            (reward.centerx + 42, reward.y + int(reward.h * 0.24) + 42, 54, 54),
+            "upgrade_rb",
+            58,
+            group="reward",
         ),
         "flow3_prompt": _image_layer(
             "flow3_prompt",
             "流程3提示",
-            (screen_w // 2 - prompt_w // 2, screen_h // 2 - prompt_h // 2, prompt_w, prompt_h),
+            (
+                screen_w // 2 - prompt_w // 2,
+                screen_h // 2 - prompt_h // 2,
+                prompt_w,
+                prompt_h,
+            ),
             "flow3_prompt",
             70,
             "contain",
@@ -494,7 +736,9 @@ class SettlementLayoutStore:
     def __init__(self, layout_path: str):
         self.layout_path = os.path.abspath(str(layout_path))
         self._default_design_layers = build_default_layout(DESIGN_SIZE, player_index=1)
-        self._runtime_default_cache: Dict[Tuple[int, int, int], Dict[str, Dict[str, Any]]] = {}
+        self._runtime_default_cache: Dict[
+            Tuple[int, int, int], Dict[str, Dict[str, Any]]
+        ] = {}
         self._mtime: Optional[float] = None
         self.layers: Dict[str, Dict[str, Any]] = {}
         self.reload(force=True)
@@ -549,16 +793,22 @@ class SettlementLayoutStore:
         self.layers = self._normalize_layers({})
         self.save()
 
-    def runtime_defaults(self, screen_size: Tuple[int, int], player_index: int) -> Dict[str, Dict[str, Any]]:
+    def runtime_defaults(
+        self, screen_size: Tuple[int, int], player_index: int
+    ) -> Dict[str, Dict[str, Any]]:
         key = (int(screen_size[0]), int(screen_size[1]), int(player_index))
         cached = self._runtime_default_cache.get(key)
         if cached is not None:
             return cached
-        layers = build_default_layout((int(screen_size[0]), int(screen_size[1])), player_index=int(player_index))
+        layers = build_default_layout(
+            (int(screen_size[0]), int(screen_size[1])), player_index=int(player_index)
+        )
         self._runtime_default_cache[key] = layers
         return layers
 
-    def runtime_layers(self, screen_size: Tuple[int, int], player_index: int = 1) -> Dict[str, Dict[str, Any]]:
+    def runtime_layers(
+        self, screen_size: Tuple[int, int], player_index: int = 1
+    ) -> Dict[str, Dict[str, Any]]:
         screen_w, screen_h = int(screen_size[0]), int(screen_size[1])
         sx = screen_w / float(DESIGN_SIZE[0])
         sy = screen_h / float(DESIGN_SIZE[1])
@@ -574,10 +824,30 @@ class SettlementLayoutStore:
                 base_design_rect = _layer_rect(base_design)
                 default_runtime_rect = _layer_rect(base_runtime)
                 runtime_rect = pygame.Rect(
-                    int(round(default_runtime_rect.x + (design_rect.x - base_design_rect.x) * sx)),
-                    int(round(default_runtime_rect.y + (design_rect.y - base_design_rect.y) * sy)),
-                    int(round(default_runtime_rect.w + (design_rect.w - base_design_rect.w) * sx)),
-                    int(round(default_runtime_rect.h + (design_rect.h - base_design_rect.h) * sy)),
+                    int(
+                        round(
+                            default_runtime_rect.x
+                            + (design_rect.x - base_design_rect.x) * sx
+                        )
+                    ),
+                    int(
+                        round(
+                            default_runtime_rect.y
+                            + (design_rect.y - base_design_rect.y) * sy
+                        )
+                    ),
+                    int(
+                        round(
+                            default_runtime_rect.w
+                            + (design_rect.w - base_design_rect.w) * sx
+                        )
+                    ),
+                    int(
+                        round(
+                            default_runtime_rect.h
+                            + (design_rect.h - base_design_rect.h) * sy
+                        )
+                    ),
                 )
             else:
                 runtime_rect = pygame.Rect(
@@ -596,10 +866,15 @@ class SettlementLayoutStore:
             text_style = layer.get("text_style")
             if isinstance(text_style, dict):
                 runtime_style = copy.deepcopy(text_style)
-                runtime_style["font_size"] = max(8, int(round(float(text_style.get("font_size", 24) or 24) * scale)))
-                runtime_style["stroke_width"] = max(0, int(round(float(text_style.get("stroke_width", 0) or 0) * scale)))
-                runtime_style["letter_spacing"] = int(round(float(text_style.get("letter_spacing", 0) or 0) * scale))
+                runtime_style["font_size"] = max(
+                    8, int(round(float(text_style.get("font_size", 24) or 24) * scale))
+                )
+                runtime_style["stroke_width"] = max(
+                    0, int(round(float(text_style.get("stroke_width", 0) or 0) * scale))
+                )
+                runtime_style["letter_spacing"] = int(
+                    round(float(text_style.get("letter_spacing", 0) or 0) * scale)
+                )
                 layer["text_style"] = runtime_style
             runtime_layers[layer_id] = layer
         return runtime_layers
-

@@ -15,33 +15,137 @@ _项目根目录_缓存: str | None = None
 
 def _取项目根目录() -> str:
     global _项目根目录_缓存
-    if _项目根目录_缓存:
-        return _项目根目录_缓存
+    try:
+        if (
+            isinstance(_项目根目录_缓存, str)
+            and _项目根目录_缓存
+            and os.path.isdir(_项目根目录_缓存)
+        ):
+            return _项目根目录_缓存
+    except Exception:
+        pass
+
+    def _规范路径(路径: str) -> str:
+        try:
+            return os.path.abspath(str(路径 or "").strip())
+        except Exception:
+            return ""
+
+    候选起点列表: List[str] = []
 
     try:
         if getattr(sys, "frozen", False):
-            起点 = os.path.dirname(os.path.abspath(sys.executable))
-        else:
-            起点 = os.path.dirname(os.path.abspath(__file__))
+            临时资源目录 = _规范路径(getattr(sys, "_MEIPASS", ""))
+            if 临时资源目录:
+                候选起点列表.append(临时资源目录)
+            候选起点列表.append(
+                _规范路径(os.path.dirname(os.path.abspath(sys.executable)))
+            )
     except Exception:
-        起点 = os.getcwd()
+        pass
 
-    当前 = os.path.abspath(起点)
-    for _ in range(8):
-        if (
-            os.path.isdir(os.path.join(当前, "core"))
-            and os.path.isdir(os.path.join(当前, "ui"))
-            and os.path.isdir(os.path.join(当前, "songs"))
-        ):
-            _项目根目录_缓存 = 当前
-            return 当前
-        上级 = os.path.dirname(当前)
-        if 上级 == 当前:
-            break
-        当前 = 上级
+    try:
+        候选起点列表.append(_规范路径(os.path.dirname(os.path.abspath(__file__))))
+    except Exception:
+        pass
 
-    _项目根目录_缓存 = os.path.abspath(起点)
+    try:
+        候选起点列表.append(_规范路径(os.getcwd()))
+    except Exception:
+        pass
+
+    已检查 = set()
+    for 起点 in 候选起点列表:
+        当前 = _规范路径(起点)
+        if (not 当前) or (当前 in 已检查):
+            continue
+        已检查.add(当前)
+
+        for _ in range(10):
+            if os.path.isdir(os.path.join(当前, "UI-img")) and os.path.isdir(
+                os.path.join(当前, "json")
+            ):
+                _项目根目录_缓存 = 当前
+                return 当前
+            上级 = os.path.dirname(当前)
+            if 上级 == 当前:
+                break
+            当前 = 上级
+
+    for 起点 in 候选起点列表:
+        if 起点:
+            _项目根目录_缓存 = _规范路径(起点)
+            return _项目根目录_缓存
+
+    _项目根目录_缓存 = _规范路径(os.getcwd()) or "."
     return _项目根目录_缓存
+
+
+def _取运行根目录() -> str:
+    try:
+        已缓存路径 = getattr(_取运行根目录, "_缓存路径", "")
+        if isinstance(已缓存路径, str) and 已缓存路径 and os.path.isdir(已缓存路径):
+            return 已缓存路径
+    except Exception:
+        pass
+
+    def _规范路径(路径: str) -> str:
+        try:
+            return os.path.abspath(str(路径 or "").strip())
+        except Exception:
+            return ""
+
+    候选起点列表: List[str] = []
+
+    try:
+        if getattr(sys, "frozen", False):
+            候选起点列表.append(
+                _规范路径(os.path.dirname(os.path.abspath(sys.executable)))
+            )
+    except Exception:
+        pass
+
+    try:
+        候选起点列表.append(_规范路径(os.getcwd()))
+    except Exception:
+        pass
+
+    try:
+        候选起点列表.append(_规范路径(os.path.dirname(os.path.abspath(__file__))))
+    except Exception:
+        pass
+
+    已检查 = set()
+    for 起点 in 候选起点列表:
+        当前 = _规范路径(起点)
+        if (not 当前) or (当前 in 已检查):
+            continue
+        已检查.add(当前)
+
+        for _ in range(10):
+            if (
+                os.path.isdir(os.path.join(当前, "songs"))
+                or os.path.isdir(os.path.join(当前, "json"))
+                or os.path.isfile(os.path.join(当前, "main.py"))
+            ):
+                setattr(_取运行根目录, "_缓存路径", 当前)
+                return 当前
+            上级 = os.path.dirname(当前)
+            if 上级 == 当前:
+                break
+            当前 = 上级
+
+    try:
+        if getattr(sys, "frozen", False):
+            回退目录 = _规范路径(os.path.dirname(os.path.abspath(sys.executable)))
+            setattr(_取运行根目录, "_缓存路径", 回退目录)
+            return 回退目录
+    except Exception:
+        pass
+
+    回退目录 = _规范路径(os.getcwd()) or "."
+    setattr(_取运行根目录, "_缓存路径", 回退目录)
+    return 回退目录
 
 
 def _安全加载图片(路径: str, 透明: bool = True) -> Optional[pygame.Surface]:
@@ -185,6 +289,7 @@ class 场景_加载页(场景基类):
 
     def 进入(self, 载荷=None):
         self._入场开始 = time.time()
+
         状态载荷 = {}
         try:
             状态 = self.上下文.get("状态", {}) if isinstance(self.上下文, dict) else {}
@@ -201,30 +306,40 @@ class 场景_加载页(场景基类):
         self._选歌设置数据 = self._读取选歌设置json()
         self._选歌设置参数文本 = self._构建选歌设置参数文本(self._选歌设置数据)
 
-        # ✅ 初始化个人资料路径 + 刷新缓存
         try:
-            根目录 = ""
-            try:
-                资源 = self.上下文.get("资源", {}) or {}
-                根目录 = str(资源.get("根", "") or "")
-            except Exception:
-                根目录 = ""
+            资源根目录 = _取项目根目录()
+            运行根目录 = _取运行根目录()
 
-            if not 根目录:
-                根目录 = _取项目根目录()
+            个人资料候选路径列表 = [
+                os.path.join(运行根目录, "json", "个人资料.json"),
+                os.path.join(资源根目录, "json", "个人资料.json"),
+                os.path.join(
+                    资源根目录, "UI-img", "个人中心-个人资料", "个人资料.json"
+                ),
+            ]
+            self._个人资料路径 = str(个人资料候选路径列表[0])
+            for 候选路径 in 个人资料候选路径列表:
+                if 候选路径 and os.path.isfile(候选路径):
+                    self._个人资料路径 = 候选路径
+                    break
 
-            self._个人资料路径 = os.path.join(
-                根目录, "UI-img", "个人中心-个人资料", "个人资料.json"
-            )
+            布局候选路径列表 = [
+                os.path.join(运行根目录, "json", "加载页_布局.json"),
+                os.path.join(资源根目录, "json", "加载页_布局.json"),
+            ]
+            self._布局路径 = str(布局候选路径列表[0])
+            for 候选路径 in 布局候选路径列表:
+                if 候选路径 and os.path.isfile(候选路径):
+                    self._布局路径 = 候选路径
+                    break
 
-            # ✅ JSON 布局文件路径
-            self._布局路径 = os.path.join(根目录, "json", "加载页_布局.json")
-
-            # ✅ 初始化渲染器（与调试器共用同一套渲染逻辑）
             try:
                 from ui.调试_加载页_渲染控件 import 加载页布局渲染器  # type: ignore
 
-                self._布局渲染器 = 加载页布局渲染器(self._布局路径, 项目根目录=根目录)
+                self._布局渲染器 = 加载页布局渲染器(
+                    self._布局路径,
+                    项目根目录=资源根目录,
+                )
             except Exception:
                 self._布局渲染器 = None
 
@@ -480,27 +595,27 @@ class 场景_加载页(场景基类):
             import json
         except Exception:
             return {}
-        try:
-            根目录 = ""
+
+        候选路径列表 = [
+            os.path.join(_取运行根目录(), "json", "加载页.json"),
+            os.path.join(_取项目根目录(), "json", "加载页.json"),
+        ]
+
+        for 路径 in 候选路径列表:
             try:
-                资源 = self.上下文.get("资源", {}) or {}
-                根目录 = str(资源.get("根", "") or "")
+                if (not 路径) or (not os.path.isfile(路径)):
+                    continue
+                for 编码 in ("utf-8-sig", "utf-8", "gbk"):
+                    try:
+                        with open(路径, "r", encoding=编码) as 文件:
+                            数据 = json.load(文件)
+                        return dict(数据) if isinstance(数据, dict) else {}
+                    except Exception:
+                        continue
             except Exception:
-                根目录 = ""
+                continue
 
-            if not 根目录:
-                根目录 = _取项目根目录()
-
-            路径 = os.path.join(根目录, "json", "加载页.json")
-            if not os.path.isfile(路径):
-                return {}
-
-            with open(路径, "r", encoding="utf-8") as f:
-                数据 = json.load(f)
-
-            return dict(数据) if isinstance(数据, dict) else {}
-        except Exception:
-            return {}
+        return {}
 
     def _读取选歌设置json(self) -> dict:
         try:
@@ -508,25 +623,26 @@ class 场景_加载页(场景基类):
         except Exception:
             return {}
 
-        try:
-            根目录 = ""
+        候选路径列表 = [
+            os.path.join(_取运行根目录(), "json", "选歌设置.json"),
+            os.path.join(_取项目根目录(), "json", "选歌设置.json"),
+        ]
+
+        for 路径 in 候选路径列表:
             try:
-                资源 = self.上下文.get("资源", {}) or {}
-                根目录 = str(资源.get("根", "") or "")
+                if (not 路径) or (not os.path.isfile(路径)):
+                    continue
+                for 编码 in ("utf-8-sig", "utf-8", "gbk"):
+                    try:
+                        with open(路径, "r", encoding=编码) as 文件:
+                            数据 = json.load(文件)
+                        return dict(数据) if isinstance(数据, dict) else {}
+                    except Exception:
+                        continue
             except Exception:
-                根目录 = ""
-            if not 根目录:
-                根目录 = _取项目根目录()
+                continue
 
-            路径 = os.path.join(根目录, "json", "选歌设置.json")
-            if not os.path.isfile(路径):
-                return {}
-
-            with open(路径, "r", encoding="utf-8") as f:
-                数据 = json.load(f)
-            return dict(数据) if isinstance(数据, dict) else {}
-        except Exception:
-            return {}
+        return {}
 
     def _构建选歌设置参数文本(self, 设置数据: dict) -> str:
         if not isinstance(设置数据, dict):

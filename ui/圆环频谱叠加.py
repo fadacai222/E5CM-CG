@@ -9,7 +9,126 @@ import pygame
 
 
 def _取项目根目录() -> str:
-    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    try:
+        已缓存路径 = getattr(_取项目根目录, "_缓存路径", "")
+        if isinstance(已缓存路径, str) and 已缓存路径 and os.path.isdir(已缓存路径):
+            return 已缓存路径
+    except Exception:
+        pass
+
+    try:
+        import sys
+    except Exception:
+        sys = None
+
+    def _规范路径(路径: str) -> str:
+        try:
+            return os.path.abspath(str(路径 or "").strip())
+        except Exception:
+            return ""
+
+    def _目录评分(目录: str) -> int:
+        try:
+            if (not 目录) or (not os.path.isdir(目录)):
+                return -1
+
+            分数 = 0
+
+            if os.path.isdir(os.path.join(目录, "UI-img")):
+                分数 += 4
+            if os.path.isdir(os.path.join(目录, "json")):
+                分数 += 3
+            if os.path.isdir(os.path.join(目录, "冷资源")):
+                分数 += 2
+            if os.path.isdir(os.path.join(目录, "core")):
+                分数 += 1
+            if os.path.isdir(os.path.join(目录, "ui")):
+                分数 += 1
+
+            return 分数
+        except Exception:
+            return -1
+
+    候选起点列表 = []
+
+    try:
+        if sys and getattr(sys, "frozen", False):
+            临时资源目录 = _规范路径(getattr(sys, "_MEIPASS", ""))
+            if 临时资源目录:
+                候选起点列表.append(临时资源目录)
+
+            可执行目录 = _规范路径(os.path.dirname(os.path.abspath(sys.executable)))
+            if 可执行目录:
+                候选起点列表.append(可执行目录)
+    except Exception:
+        pass
+
+    try:
+        脚本目录 = _规范路径(os.path.dirname(os.path.abspath(__file__)))
+        if 脚本目录:
+            候选起点列表.append(脚本目录)
+    except Exception:
+        pass
+
+    try:
+        工作目录 = _规范路径(os.getcwd())
+        if 工作目录:
+            候选起点列表.append(工作目录)
+    except Exception:
+        pass
+
+    去重后候选 = []
+    已见路径 = set()
+    for 路径 in 候选起点列表:
+        规范后 = _规范路径(路径)
+        if (not 规范后) or (规范后 in 已见路径):
+            continue
+        已见路径.add(规范后)
+        去重后候选.append(规范后)
+
+    最佳目录 = ""
+    最佳分数 = -1
+    已检查目录 = set()
+
+    for 起点 in 去重后候选:
+        当前目录 = 起点
+        for _ in range(12):
+            当前目录 = _规范路径(当前目录)
+            if (not 当前目录) or (当前目录 in 已检查目录):
+                break
+
+            已检查目录.add(当前目录)
+            当前分数 = _目录评分(当前目录)
+
+            if 当前分数 > 最佳分数:
+                最佳分数 = 当前分数
+                最佳目录 = 当前目录
+
+            if 当前分数 >= 7:
+                setattr(_取项目根目录, "_缓存路径", 当前目录)
+                return 当前目录
+
+            上级目录 = os.path.dirname(当前目录)
+            if 上级目录 == 当前目录:
+                break
+            当前目录 = 上级目录
+
+    if 最佳目录:
+        setattr(_取项目根目录, "_缓存路径", 最佳目录)
+        return 最佳目录
+
+    for 路径 in 去重后候选:
+        if 路径 and os.path.isdir(路径):
+            setattr(_取项目根目录, "_缓存路径", 路径)
+            return 路径
+
+    try:
+        回退目录 = _规范路径(os.getcwd())
+    except Exception:
+        回退目录 = "."
+
+    setattr(_取项目根目录, "_缓存路径", 回退目录)
+    return 回退目录
 
 
 @dataclass
@@ -95,10 +214,17 @@ class 圆环频谱控件:
                 self._上一幅度 = np.zeros(条数, dtype=np.float32)
             else:
                 src = np.linspace(
-                    0.0, float(max(0, self._上一幅度.size - 1)), int(self._上一幅度.size), dtype=np.float32
+                    0.0,
+                    float(max(0, self._上一幅度.size - 1)),
+                    int(self._上一幅度.size),
+                    dtype=np.float32,
                 )
-                dst = np.linspace(0.0, float(max(0, self._上一幅度.size - 1)), 条数, dtype=np.float32)
-                self._上一幅度 = np.interp(dst, src, self._上一幅度.astype(np.float32)).astype(np.float32)
+                dst = np.linspace(
+                    0.0, float(max(0, self._上一幅度.size - 1)), 条数, dtype=np.float32
+                )
+                self._上一幅度 = np.interp(
+                    dst, src, self._上一幅度.astype(np.float32)
+                ).astype(np.float32)
 
         内半径 = float(self.样式.内半径)
         最大长度 = float(self.样式.外延最大长度)
@@ -126,7 +252,7 @@ class 圆环频谱控件:
             cos值 = math.cos(角度)
             sin值 = math.sin(角度)
             底部权重 = float(max(0.0, min(1.0, (sin值 + 1.0) * 0.5)))
-            底部权重 = float(0.12 + 0.88 * (底部权重 ** 1.75))
+            底部权重 = float(0.12 + 0.88 * (底部权重**1.75))
             毛刺系数 = float(0.86 + 0.30 * abs(math.sin(float(i) * 2.173)))
             长度 = (幅度**0.62) * 最大长度 * 底部权重 * 毛刺系数
 
@@ -191,10 +317,10 @@ class 圆环频谱控件:
         幅度 = float(np.clip(幅度, 0.0, 1.0))
 
         调色板 = (
-            (0, 255, 245),    # 霓虹青
-            (56, 118, 255),   # 电蓝
-            (224, 32, 255),   # 霓虹紫
-            (255, 58, 188),   # 赛博粉
+            (0, 255, 245),  # 霓虹青
+            (56, 118, 255),  # 电蓝
+            (224, 32, 255),  # 霓虹紫
+            (255, 58, 188),  # 赛博粉
         )
         seg = t * float(len(调色板))
         i0 = int(seg) % len(调色板)
@@ -207,7 +333,7 @@ class 圆环频谱控件:
         g = int(min(255, max(0, round(float(g) * 亮度倍率))))
         b = int(min(255, max(0, round(float(b) * 亮度倍率))))
 
-        白提 = int(round(86.0 * (幅度 ** 1.7)))
+        白提 = int(round(86.0 * (幅度**1.7)))
         return (min(255, r + 白提), min(255, g + 白提), min(255, b + 白提))
 
     def _混色(
@@ -355,8 +481,8 @@ class 音频频谱提取器:
 
         self._log频率索引 = 映射索引
         # 低频和中低频加权，强化节奏感；高频轻抑制，避免“全段同跳”。
-        低频增强 = 1.0 + 1.35 * np.exp(-((目标频率 - 120.0) / 145.0) ** 2)
-        中频增强 = 1.0 + 0.42 * np.exp(-((目标频率 - 820.0) / 920.0) ** 2)
+        低频增强 = 1.0 + 1.35 * np.exp(-(((目标频率 - 120.0) / 145.0) ** 2))
+        中频增强 = 1.0 + 0.42 * np.exp(-(((目标频率 - 820.0) / 920.0) ** 2))
         高频抑制 = 0.92 - 0.08 * np.clip((目标频率 - 4200.0) / 3800.0, 0.0, 1.0)
         self._频段权重 = (低频增强 * 中频增强 * 高频抑制).astype(np.float32)
         self._低频掩码 = np.asarray(目标频率 <= 280.0, dtype=bool)
@@ -401,13 +527,13 @@ class 音频频谱提取器:
             低频原始向量 = 幅度[低频原始索引].astype(np.float32)
         else:
             低频原始向量 = 幅度[: min(12, max(1, int(幅度.size)))].astype(np.float32)
-        低频原始能量 = float(np.mean(低频原始向量)) if int(低频原始向量.size) > 0 else 0.0
+        低频原始能量 = (
+            float(np.mean(低频原始向量)) if int(低频原始向量.size) > 0 else 0.0
+        )
         self._低频原始能量基线 = float(
             self._低频原始能量基线 * 0.90 + 低频原始能量 * 0.10
         )
-        低频原始涨落 = max(
-            0.0, float(低频原始能量 - float(self._上次低频原始能量))
-        )
+        低频原始涨落 = max(0.0, float(低频原始能量 - float(self._上次低频原始能量)))
         self._上次低频原始能量 = float(低频原始能量)
         self._低频原始涨落基线 = float(
             self._低频原始涨落基线 * 0.90 + 低频原始涨落 * 0.10
@@ -415,17 +541,14 @@ class 音频频谱提取器:
 
         低频流向量 = np.log1p(低频原始向量 * 16.0).astype(np.float32)
         低频频谱流 = 0.0
-        if (
-            isinstance(self._上次低频向量, np.ndarray)
-            and int(self._上次低频向量.size) == int(低频流向量.size)
-        ):
+        if isinstance(self._上次低频向量, np.ndarray) and int(
+            self._上次低频向量.size
+        ) == int(低频流向量.size):
             低频频谱流 = float(
                 np.mean(np.maximum(0.0, 低频流向量 - self._上次低频向量))
             )
         self._上次低频向量 = 低频流向量
-        self._低频频谱流基线 = float(
-            self._低频频谱流基线 * 0.90 + 低频频谱流 * 0.10
-        )
+        self._低频频谱流基线 = float(self._低频频谱流基线 * 0.90 + 低频频谱流 * 0.10)
 
         低频原始基线 = float(max(1e-6, self._低频原始能量基线))
         低频涨落基线_原始 = float(max(1e-6, self._低频原始涨落基线))
@@ -451,7 +574,11 @@ class 音频频谱提取器:
             条幅度 = 条幅度 * self._频段权重
 
         低频掩码 = self._低频掩码
-        if isinstance(低频掩码, np.ndarray) and 低频掩码.size == 条幅度.size and bool(np.any(低频掩码)):
+        if (
+            isinstance(低频掩码, np.ndarray)
+            and 低频掩码.size == 条幅度.size
+            and bool(np.any(低频掩码))
+        ):
             try:
                 低频能量 = float(np.mean(条幅度[低频掩码]))
             except Exception:
@@ -467,18 +594,31 @@ class 音频频谱提取器:
         涨落基线 = float(max(1e-6, self._低频涨落基线))
         条低频脉冲 = float(max(0.0, (低频涨落 - 涨落基线 * 0.82) / (涨落基线 * 2.9)))
         鼓点瞬态 = float(
-            条低频脉冲 * 0.72 + 原始涨落脉冲 * 1.05 + 频谱流脉冲 * 1.36 + 原始低频脉冲 * 0.45
+            条低频脉冲 * 0.72
+            + 原始涨落脉冲 * 1.05
+            + 频谱流脉冲 * 1.36
+            + 原始低频脉冲 * 0.45
         )
         self._鼓点脉冲包络 = float(max(鼓点瞬态, self._鼓点脉冲包络 * 0.74))
         鼓点脉冲 = float(min(1.75, max(0.0, self._鼓点脉冲包络)))
 
-        if self._目标频率hz is not None and self._目标频率hz.size == 条幅度.size and 低频脉冲 > 1e-6:
-            低频分布 = np.exp(-((self._目标频率hz - 145.0) / 220.0) ** 2).astype(np.float32)
+        if (
+            self._目标频率hz is not None
+            and self._目标频率hz.size == 条幅度.size
+            and 低频脉冲 > 1e-6
+        ):
+            低频分布 = np.exp(-(((self._目标频率hz - 145.0) / 220.0) ** 2)).astype(
+                np.float32
+            )
             条幅度 = 条幅度 + (低频脉冲 * 2.8) * 低频分布
-        if self._目标频率hz is not None and self._目标频率hz.size == 条幅度.size and 鼓点脉冲 > 1e-6:
+        if (
+            self._目标频率hz is not None
+            and self._目标频率hz.size == 条幅度.size
+            and 鼓点脉冲 > 1e-6
+        ):
             低中频分布 = (
-                np.exp(-((self._目标频率hz - 130.0) / 230.0) ** 2)
-                + 0.45 * np.exp(-((self._目标频率hz - 900.0) / 1200.0) ** 2)
+                np.exp(-(((self._目标频率hz - 130.0) / 230.0) ** 2))
+                + 0.45 * np.exp(-(((self._目标频率hz - 900.0) / 1200.0) ** 2))
             ).astype(np.float32)
             条幅度 = 条幅度 + (鼓点脉冲 * 1.85) * 低中频分布 + float(鼓点脉冲) * 0.16
 
@@ -565,7 +705,9 @@ class 音频频谱提取器:
             half = int(max(4, n // 2))
             src_x = np.linspace(0.0, float(n - 1), n, dtype=np.float32)
             dst_x = np.linspace(0.0, float(n - 1), half, dtype=np.float32)
-            half_arr = np.interp(dst_x, src_x, arr.astype(np.float32)).astype(np.float32)
+            half_arr = np.interp(dst_x, src_x, arr.astype(np.float32)).astype(
+                np.float32
+            )
             if (n % 2) == 0:
                 out = np.concatenate([half_arr, half_arr[::-1]]).astype(np.float32)
             else:

@@ -73,7 +73,7 @@ def 清理旧文件(项目根: Path):
     """清理之前的编译输出"""
     print("🧹 清理旧的编译文件...")
 
-    dist_dir = 项目根 / "dist"
+    dist_dir = 项目根 / "编译结果"
     build_dir = 项目根 / "build"
     spec_file = 项目根 / "E5CM-CG.spec"
 
@@ -231,7 +231,7 @@ def 构建PyInstaller命令(项目根: Path, embedded_datas: list) -> list:
         "--add-data=" + str(项目根 / "core") + ";core",  # 打包 core 模块
         "--add-data=" + str(项目根 / "scenes") + ";scenes",  # 打包 scenes 模块
         "--add-data=" + str(项目根 / "ui") + ";ui",  # 打包 ui 模块
-        "--distpath=" + str(项目根 / "dist"),  # 输出路径
+        "--distpath=" + str(项目根 / "编译结果"),  # 输出路径
         "--workpath=" + str(项目根 / "build"),  # 构建路径
         "--specpath=" + str(项目根),  # spec 文件路径
     ]
@@ -269,68 +269,71 @@ def 运行编译(cmd: list):
         return False
 
 
-def 复制资源到输出目录(项目根: Path, external_datas: list):
-    """将资源文件复制到 dist 目录（与 exe 同级）
+def 复制资源到输出目录(项目根: Path, 外部资源列表: list):
+    """将资源文件复制到“编译结果”目录（与 exe 同级）
 
     参数:
-        external_datas: 保留在 dist 目录的资源列表
+        外部资源列表: 保留在输出目录的资源列表
     """
     print("\n" + "=" * 60)
-    print("📋 复制资源文件到 dist 目录...")
+    print("📋 复制资源文件到编译结果目录...")
     print("=" * 60)
 
-    dist_dir = 项目根 / "dist"
+    输出目录 = 项目根 / "编译结果"
 
-    for src_path, resource_dir in external_datas:
-        src = Path(src_path)
-        dst = dist_dir / resource_dir
+    if not 输出目录.exists():
+        输出目录.mkdir(parents=True, exist_ok=True)
 
-        if src.exists():
-            if dst.exists():
-                shutil.rmtree(dst)
-            shutil.copytree(src, dst)
-            print(f"  ✓ 已复制 {resource_dir}")
+    for 源路径字符串, 资源目录名 in 外部资源列表:
+        源路径 = Path(源路径字符串)
+        目标路径 = 输出目录 / 资源目录名
+
+        if 源路径.exists():
+            if 目标路径.exists():
+                shutil.rmtree(目标路径)
+            shutil.copytree(源路径, 目标路径)
+            print(f"  ✓ 已复制 {资源目录名} -> {目标路径}")
         else:
-            print(f"  ⚠ 跳过 {resource_dir} (不存在)")
+            print(f"  ⚠ 跳过 {资源目录名}（不存在）")
 
     print()
 
 
-def 验证编译结果(项目根: Path, external_datas: list):
+def 验证编译结果(项目根: Path, 外部资源列表: list):
     """验证编译结果
 
     参数:
-        external_datas: 应该在 dist 中的外部资源列表
+        外部资源列表: 应该在“编译结果”中的外部资源列表
     """
     print("=" * 60)
     print("✅ 验证编译结果...")
     print("=" * 60)
 
-    exe_path = 项目根 / "dist" / "E5CM-CG.exe"
+    输出目录 = 项目根 / "编译结果"
+    主程序路径 = 输出目录 / "E5CM-CG.exe"
 
-    if exe_path.exists():
-        file_size = exe_path.stat().st_size / (1024 * 1024)
-        print(f"✓ 主程序: {exe_path}")
-        print(f"  大小: {file_size:.2f} MB")
+    if 主程序路径.exists():
+        文件大小 = 主程序路径.stat().st_size / (1024 * 1024)
+        print(f"✓ 主程序: {主程序路径}")
+        print(f"  大小: {文件大小:.2f} MB")
     else:
-        print(f"✗ 主程序未找到: {exe_path}")
+        print(f"✗ 主程序未找到: {主程序路径}")
         return False
 
-    # 验证外部资源文件
-    all_ok = True
+    全部正常 = True
 
-    print(f"\n验证外部资源:")
-    for src_path, resource_dir in external_datas:
-        res_path = 项目根 / "dist" / resource_dir
-        if res_path.exists():
-            print(f"  ✓ {resource_dir}")
+    print("\n验证外部资源:")
+    for _, 资源目录名 in 外部资源列表:
+        资源路径 = 输出目录 / 资源目录名
+        if 资源路径.exists():
+            print(f"  ✓ {资源目录名}")
         else:
-            print(f"  ✗ {resource_dir} 缺失")
-            all_ok = False
+            print(f"  ✗ {资源目录名} 缺失")
+            全部正常 = False
 
-    print(f"\n✓ 打包到 exe 内的资源: 冷资源, backmovies, UI-img, json")
+    print("\n✓ 打包到 exe 内的资源: 冷资源, backmovies, UI-img, json")
     print()
-    return all_ok
+    return 全部正常
 
 
 def 链接检查(项目根: Path):
@@ -377,6 +380,7 @@ def 清理临时编译文件(项目根: Path):
 def 主程序():
     """主程序步骤"""
     项目根 = 获取项目根目录()
+    输出目录 = 项目根 / "编译结果"
 
     print("\n")
     print("=" * 60)
@@ -394,42 +398,43 @@ def 主程序():
     清理不需要的文件(项目根)
 
     # 步骤 3: 准备资源数据
-    embedded_datas, external_datas = 准备资源数据(项目根)
+    内嵌资源列表, 外部资源列表 = 准备资源数据(项目根)
 
     # 步骤 4: 构建命令
-    cmd = 构建PyInstaller命令(项目根, embedded_datas)
+    命令列表 = 构建PyInstaller命令(项目根, 内嵌资源列表)
 
     # 步骤 5: 运行编译
-    success = 运行编译(cmd)
+    是否成功 = 运行编译(命令列表)
 
-    if not success:
+    if not 是否成功:
         print("\n⚠️  编译失败，请检查错误信息")
         sys.exit(1)
 
     # 步骤 6: 复制外部资源到输出目录
-    复制资源到输出目录(项目根, external_datas)
+    复制资源到输出目录(项目根, 外部资源列表)
 
     # 步骤 7: 验证结果
-    result_ok = 验证编译结果(项目根, external_datas)
+    验证是否通过 = 验证编译结果(项目根, 外部资源列表)
 
-    if result_ok:
+    if 验证是否通过:
         # 步骤 8: 清理临时文件
         清理临时编译文件(项目根)
 
         print("=" * 60)
         print("✨ 编译成功！")
         print("=" * 60)
-        print(f"\n输出位置: {项目根 / 'dist'}")
-        print(f"主程序: {项目根 / 'dist' / 'E5CM-CG.exe'}")
-        print(f"资源文件: 与 exe 同级目录")
+        print(f"\n输出位置: {输出目录}")
+        print(f"主程序: {输出目录 / 'E5CM-CG.exe'}")
+        print(f"歌曲目录: {输出目录 / 'songs'}")
+        print("资源文件: 与 exe 同级目录")
         print("\n📝 注意:")
         print("  - 首次运行可能较慢，因为需要初始化 Pygame 和 OpenCV")
-        print("  - 确保 dist 文件夹中的所有资源文件都完整无损")
+        print("  - 确保编译结果文件夹中的所有资源文件都完整无损")
         print("  - 如果缺少资源，游戏无法正常运行")
         print()
     else:
         print("\n⚠️  编译已完成但部分资源可能缺失")
-        print("请检查 dist 目录的内容")
+        print(f"请检查目录: {输出目录}")
         sys.exit(1)
 
 

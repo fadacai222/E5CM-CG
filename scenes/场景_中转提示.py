@@ -268,7 +268,9 @@ class 场景_中转提示(场景基类):
         self._联网原图 = _安全载图(联网图路径)
 
         背景截图 = self._载荷.get("结算背景截图")
-        self._背景截图 = 背景截图.copy() if isinstance(背景截图, pygame.Surface) else None
+        self._背景截图 = (
+            背景截图.copy() if isinstance(背景截图, pygame.Surface) else None
+        )
 
         背景路径 = str(self._载荷.get("背景图片路径", "") or "")
         if (not 背景路径) or (not os.path.isfile(背景路径)):
@@ -486,37 +488,6 @@ class 场景_中转提示(场景基类):
             return self._返回选歌(动作)
         return None
 
-    def _构建返回选歌动作(self) -> dict:
-        return {
-            "类型": "选歌",
-            "选歌类型": str(self._载荷.get("类型", "竞速") or "竞速"),
-            "选歌模式": str(self._载荷.get("模式", "竞速") or "竞速"),
-            "选歌原始索引": int(self._载荷.get("选歌原始索引", -1) or -1),
-            "选歌恢复详情页": False,
-        }
-
-    def _返回选歌(self, 动作: Optional[dict] = None):
-        状态 = (
-            self.上下文.get("状态", {})
-            if isinstance(self.上下文.get("状态", {}), dict)
-            else {}
-        )
-        动作 = 动作 if isinstance(动作, dict) else {}
-        try:
-            状态["选歌_类型"] = str(
-                动作.get("选歌类型", self._载荷.get("类型", "竞速")) or "竞速"
-            )
-            状态["选歌_模式"] = str(
-                动作.get("选歌模式", self._载荷.get("模式", "竞速")) or "竞速"
-            )
-            状态["选歌_恢复原始索引"] = int(
-                动作.get("选歌原始索引", self._载荷.get("选歌原始索引", -1)) or -1
-            )
-            状态["选歌_恢复详情页"] = bool(动作.get("选歌恢复详情页", False))
-        except Exception:
-            pass
-        return {"切换到": "选歌", "禁用黑屏过渡": True}
-
     def _播放游戏结束音效(self):
         try:
             if not pygame.mixer.get_init():
@@ -537,9 +508,9 @@ class 场景_中转提示(场景基类):
     def _绘制背景(self, 屏幕: pygame.Surface):
         屏宽, 屏高 = 屏幕.get_size()
         if self._背景截图 is not None:
-            if (
-                self._背景缩放缓存 is None
-                or self._背景缩放尺寸 != (int(屏宽), int(屏高))
+            if self._背景缩放缓存 is None or self._背景缩放尺寸 != (
+                int(屏宽),
+                int(屏高),
             ):
                 try:
                     self._背景缩放缓存 = pygame.transform.smoothscale(
@@ -554,9 +525,9 @@ class 场景_中转提示(场景基类):
 
         if self._背景图 is not None:
             try:
-                if (
-                    self._背景缩放缓存 is None
-                    or self._背景缩放尺寸 != (int(屏宽), int(屏高))
+                if self._背景缩放缓存 is None or self._背景缩放尺寸 != (
+                    int(屏宽),
+                    int(屏高),
                 ):
                     self._背景缩放缓存 = pygame.transform.smoothscale(
                         self._背景图, (int(屏宽), int(屏高))
@@ -568,9 +539,7 @@ class 场景_中转提示(场景基类):
                 pass
         屏幕.fill((0, 0, 0))
 
-    def _绘制提示图(
-        self, 屏幕: pygame.Surface, 区域: pygame.Rect, 透明度系数: float
-    ):
+    def _绘制提示图(self, 屏幕: pygame.Surface, 区域: pygame.Rect, 透明度系数: float):
         图 = self._提示图集.get(self._提示键)
         if 图 is None:
             文面 = self._回退字体.render(self._提示键 or "提示", True, (255, 255, 255))
@@ -675,8 +644,7 @@ class 场景_中转提示(场景基类):
         剩余秒 = max(
             0,
             int(
-                max(0.0, float(self._阶段持续秒 or 0.0) - float(已过秒) - 0.001)
-                + 0.999
+                max(0.0, float(self._阶段持续秒 or 0.0) - float(已过秒) - 0.001) + 0.999
             ),
         )
         数字文本 = str(剩余秒)
@@ -725,3 +693,208 @@ class 场景_中转提示(场景基类):
             )
         except Exception:
             pass
+
+    def _构建返回选歌动作(self) -> dict:
+        状态 = self.上下文.get("状态", {})
+        if not isinstance(状态, dict):
+            状态 = {}
+
+        加载页载荷 = 状态.get("加载页_载荷", {})
+        if not isinstance(加载页载荷, dict):
+            加载页载荷 = {}
+
+        def _取首个非空文本(*候选值) -> str:
+            for 候选值项 in 候选值:
+                try:
+                    文本 = str(候选值项 or "").strip()
+                except Exception:
+                    文本 = ""
+                if 文本:
+                    return 文本
+            return ""
+
+        def _取首个整数(默认值: int, *候选值) -> int:
+            for 候选值项 in 候选值:
+                try:
+                    if 候选值项 is None or str(候选值项).strip() == "":
+                        continue
+                    return int(候选值项)
+                except Exception:
+                    continue
+            return int(默认值)
+
+        def _取首个布尔值(默认值: bool, *候选值) -> bool:
+            for 候选值项 in 候选值:
+                if isinstance(候选值项, bool):
+                    return 候选值项
+                try:
+                    文本 = str(候选值项 or "").strip().lower()
+                except Exception:
+                    文本 = ""
+                if not 文本:
+                    continue
+                if 文本 in ("1", "true", "yes", "y", "on"):
+                    return True
+                if 文本 in ("0", "false", "no", "n", "off"):
+                    return False
+            return bool(默认值)
+
+        选歌类型 = _取首个非空文本(
+            self._载荷.get("选歌类型", ""),
+            self._载荷.get("类型", ""),
+            self._载荷.get("大模式", ""),
+            状态.get("选歌_类型", ""),
+            状态.get("大模式", ""),
+            状态.get("songs子文件夹", ""),
+            加载页载荷.get("选歌类型", ""),
+            加载页载荷.get("类型", ""),
+            加载页载荷.get("大模式", ""),
+            "竞速",
+        )
+
+        选歌模式 = _取首个非空文本(
+            self._载荷.get("选歌模式", ""),
+            self._载荷.get("模式", ""),
+            self._载荷.get("子模式", ""),
+            状态.get("选歌_模式", ""),
+            状态.get("子模式", ""),
+            加载页载荷.get("选歌模式", ""),
+            加载页载荷.get("模式", ""),
+            加载页载荷.get("子模式", ""),
+            "竞速",
+        )
+
+        恢复原始索引 = _取首个整数(
+            -1,
+            self._载荷.get("选歌原始索引", None),
+            self._载荷.get("原始索引", None),
+            状态.get("选歌_恢复原始索引", None),
+            状态.get("选歌原始索引", None),
+            加载页载荷.get("选歌原始索引", None),
+        )
+
+        恢复详情页 = _取首个布尔值(
+            False,
+            self._载荷.get("选歌恢复详情页", None),
+            状态.get("选歌_恢复详情页", None),
+            加载页载荷.get("选歌恢复详情页", None),
+        )
+
+        return {
+            "类型": "选歌",
+            "选歌类型": 选歌类型,
+            "选歌模式": 选歌模式,
+            "大模式": 选歌类型,
+            "子模式": 选歌模式,
+            "songs子文件夹": 选歌类型,
+            "选歌原始索引": int(恢复原始索引),
+            "选歌恢复详情页": bool(恢复详情页),
+        }
+
+    def _返回选歌(self, 动作: Optional[dict] = None):
+        状态 = (
+            self.上下文.get("状态", {})
+            if isinstance(self.上下文.get("状态", {}), dict)
+            else {}
+        )
+        动作 = 动作 if isinstance(动作, dict) else {}
+
+        加载页载荷 = 状态.get("加载页_载荷", {})
+        if not isinstance(加载页载荷, dict):
+            加载页载荷 = {}
+
+        def _取首个非空文本(*候选值) -> str:
+            for 候选值项 in 候选值:
+                try:
+                    文本 = str(候选值项 or "").strip()
+                except Exception:
+                    文本 = ""
+                if 文本:
+                    return 文本
+            return ""
+
+        def _取首个整数(默认值: int, *候选值) -> int:
+            for 候选值项 in 候选值:
+                try:
+                    if 候选值项 is None or str(候选值项).strip() == "":
+                        continue
+                    return int(候选值项)
+                except Exception:
+                    continue
+            return int(默认值)
+
+        def _取首个布尔值(默认值: bool, *候选值) -> bool:
+            for 候选值项 in 候选值:
+                if isinstance(候选值项, bool):
+                    return 候选值项
+                try:
+                    文本 = str(候选值项 or "").strip().lower()
+                except Exception:
+                    文本 = ""
+                if not 文本:
+                    continue
+                if 文本 in ("1", "true", "yes", "y", "on"):
+                    return True
+                if 文本 in ("0", "false", "no", "n", "off"):
+                    return False
+            return bool(默认值)
+
+        try:
+            选歌类型 = _取首个非空文本(
+                动作.get("选歌类型", ""),
+                动作.get("大模式", ""),
+                self._载荷.get("选歌类型", ""),
+                self._载荷.get("类型", ""),
+                self._载荷.get("大模式", ""),
+                状态.get("选歌_类型", ""),
+                状态.get("大模式", ""),
+                状态.get("songs子文件夹", ""),
+                加载页载荷.get("选歌类型", ""),
+                加载页载荷.get("类型", ""),
+                加载页载荷.get("大模式", ""),
+                "竞速",
+            )
+
+            选歌模式 = _取首个非空文本(
+                动作.get("选歌模式", ""),
+                动作.get("子模式", ""),
+                self._载荷.get("选歌模式", ""),
+                self._载荷.get("模式", ""),
+                self._载荷.get("子模式", ""),
+                状态.get("选歌_模式", ""),
+                状态.get("子模式", ""),
+                加载页载荷.get("选歌模式", ""),
+                加载页载荷.get("模式", ""),
+                加载页载荷.get("子模式", ""),
+                "竞速",
+            )
+
+            恢复原始索引 = _取首个整数(
+                -1,
+                动作.get("选歌原始索引", None),
+                self._载荷.get("选歌原始索引", None),
+                self._载荷.get("原始索引", None),
+                状态.get("选歌_恢复原始索引", None),
+                状态.get("选歌原始索引", None),
+                加载页载荷.get("选歌原始索引", None),
+            )
+
+            恢复详情页 = _取首个布尔值(
+                False,
+                动作.get("选歌恢复详情页", None),
+                self._载荷.get("选歌恢复详情页", None),
+                状态.get("选歌_恢复详情页", None),
+                加载页载荷.get("选歌恢复详情页", None),
+            )
+
+            状态["选歌_类型"] = 选歌类型
+            状态["选歌_模式"] = 选歌模式
+            状态["大模式"] = 选歌类型
+            状态["子模式"] = 选歌模式
+            状态["songs子文件夹"] = 选歌类型
+            状态["选歌_恢复原始索引"] = int(恢复原始索引)
+            状态["选歌_恢复详情页"] = bool(恢复详情页)
+        except Exception:
+            pass
+
+        return {"切换到": "选歌", "禁用黑屏过渡": True}

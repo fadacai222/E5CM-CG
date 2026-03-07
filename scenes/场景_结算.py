@@ -88,8 +88,6 @@ class 场景_结算(场景基类):
         self._流程2时长秒 = 3.0
         self._经验窗入场秒 = 0.55
         self._背景图: Optional[pygame.Surface] = None
-        self._背景视频播放器 = None
-        self._背景视频路径: str = ""
         self._面板图: Optional[pygame.Surface] = None
         self._封面图: Optional[pygame.Surface] = None
         self._评级图: Optional[pygame.Surface] = None
@@ -180,21 +178,6 @@ class 场景_结算(场景基类):
         self._更新个人资料()
         self._配置流程状态()
         self._播放结算音效()
-
-    def 退出(self):
-        try:
-            if self._结算音效通道 is not None:
-                self._结算音效通道.stop()
-        except Exception:
-            pass
-        try:
-            if self._背景视频播放器 is not None and hasattr(
-                self._背景视频播放器, "关闭"
-            ):
-                self._背景视频播放器.关闭()
-        except Exception:
-            pass
-        self._背景视频播放器 = None
 
     def _配置流程3初始流程(self):
         if self._流程3三把S赠送:
@@ -1327,57 +1310,6 @@ class 场景_结算(场景基类):
         except Exception:
             pass
 
-    def _绘制结算背景(self, 屏幕: pygame.Surface):
-        try:
-            if self._背景视频播放器 is not None and hasattr(
-                self._背景视频播放器, "读取帧"
-            ):
-                帧 = self._背景视频播放器.读取帧()
-                if isinstance(帧, pygame.Surface):
-                    self._绘制cover背景(屏幕, 帧)
-                    return
-        except Exception:
-            pass
-        self._绘制cover背景(屏幕, self._背景图)
-
-    def _加载背景视频(self, 视频来源: str):
-        视频来源 = str(视频来源 or "").strip()
-        self._背景视频路径 = ""
-        try:
-            if self._背景视频播放器 is not None and hasattr(
-                self._背景视频播放器, "关闭"
-            ):
-                self._背景视频播放器.关闭()
-        except Exception:
-            pass
-        self._背景视频播放器 = None
-
-        if not 视频来源:
-            return
-
-        try:
-            if os.path.isdir(视频来源):
-                from core.视频 import 全局视频顺序循环播放器
-
-                播放器 = 全局视频顺序循环播放器(视频来源)
-                播放器.打开(是否重置进度=False)
-                self._背景视频播放器 = 播放器
-                self._背景视频路径 = str(视频来源)
-                return
-
-            if not os.path.isfile(视频来源):
-                return
-
-            from core.视频 import 全局视频循环播放器
-
-            播放器 = 全局视频循环播放器(视频来源)
-            播放器.打开(是否重置进度=False)
-            self._背景视频播放器 = 播放器
-            self._背景视频路径 = str(视频来源)
-        except Exception:
-            self._背景视频播放器 = None
-            self._背景视频路径 = ""
-
     def _绘制底部币值(self, 屏幕: pygame.Surface):
         try:
             字体_credit = (self.上下文.get("字体", {}) or {}).get("投币_credit字")
@@ -1466,40 +1398,42 @@ class 场景_结算(场景基类):
         except Exception:
             pass
 
-    def _构建返回选歌动作(self) -> dict:
-        return {
-            "类型": "选歌",
-            "选歌类型": str(self._载荷.get("类型", "竞速") or "竞速"),
-            "选歌模式": str(self._载荷.get("模式", "竞速") or "竞速"),
-            "选歌原始索引": int(self._载荷.get("选歌原始索引", -1) or -1),
-            "选歌恢复详情页": False,
-        }
-
-    def _返回选歌(self, 动作: Optional[dict] = None):
-        状态 = (
-            self.上下文.get("状态", {})
-            if isinstance(self.上下文.get("状态", {}), dict)
-            else {}
-        )
-        动作 = 动作 if isinstance(动作, dict) else {}
-        try:
-            状态["选歌_类型"] = str(
-                动作.get("选歌类型", self._载荷.get("类型", "竞速")) or "竞速"
-            )
-            状态["选歌_模式"] = str(
-                动作.get("选歌模式", self._载荷.get("模式", "竞速")) or "竞速"
-            )
-            状态["选歌_恢复原始索引"] = int(
-                动作.get("选歌原始索引", self._载荷.get("选歌原始索引", -1)) or -1
-            )
-            状态["选歌_恢复详情页"] = bool(动作.get("选歌恢复详情页", False))
-        except Exception:
-            pass
-        return {"切换到": "选歌", "禁用黑屏过渡": True}
-
     def _个人资料路径(self) -> str:
-        根目录 = str((self.上下文.get("资源", {}) or {}).get("根", "") or os.getcwd())
-        return os.path.join(根目录, "UI-img", "个人中心-个人资料", "个人资料.json")
+        资源根目录 = str(
+            (self.上下文.get("资源", {}) or {}).get("根", "") or ""
+        ).strip()
+        if not 资源根目录:
+            资源根目录 = os.getcwd()
+
+        运行根目录 = ""
+        try:
+            import sys as 系统
+
+            if getattr(系统, "frozen", False):
+                运行根目录 = os.path.dirname(os.path.abspath(系统.executable))
+        except Exception:
+            运行根目录 = ""
+
+        if not 运行根目录:
+            try:
+                运行根目录 = os.getcwd()
+            except Exception:
+                运行根目录 = 资源根目录
+
+        候选路径列表 = [
+            os.path.join(运行根目录, "json", "个人资料.json"),
+            os.path.join(资源根目录, "json", "个人资料.json"),
+            os.path.join(资源根目录, "UI-img", "个人中心-个人资料", "个人资料.json"),
+        ]
+
+        for 候选路径 in 候选路径列表:
+            try:
+                if 候选路径 and os.path.isfile(候选路径):
+                    return 候选路径
+            except Exception:
+                continue
+
+        return 候选路径列表[0]
 
     def _读取个人资料(self) -> dict:
         路径 = self._个人资料路径()
@@ -2361,82 +2295,6 @@ class 场景_结算(场景基类):
             max(1, int(round(float(奖励窗局部rect.h) * 缩放y))),
         )
 
-    def _加载资源(self):
-        根目录 = str((self.上下文.get("资源", {}) or {}).get("根", "") or os.getcwd())
-
-        背景视频路径 = str(self._载荷.get("背景视频路径", "") or "")
-        self._加载背景视频(背景视频路径)
-
-        背景路径 = str(self._载荷.get("背景图片路径", "") or "")
-        if (not 背景路径) or (not os.path.isfile(背景路径)):
-            背景路径 = os.path.join(根目录, "冷资源", "backimages", "选歌界面.png")
-        self._背景图 = _安全载图(背景路径, 透明=False)
-
-        self._面板图 = _安全载图(
-            os.path.join(根目录, "UI-img", "游戏界面", "结算", "结算背景通用.png")
-        )
-        self._封面图 = _安全载图(str(self._载荷.get("封面路径", "") or ""))
-
-        self._星星图 = _安全载图(
-            os.path.join(根目录, "UI-img", "选歌界面资源", "小星星", "小星星.png")
-        )
-
-        评级 = str(self._载荷.get("评级", "F") or "F").strip().lower()
-        self._评级图 = _安全载图(
-            os.path.join(根目录, "UI-img", "游戏界面", "结算", "评价", f"{评级}.png")
-        )
-        self._全连图 = _安全载图(
-            os.path.join(根目录, "UI-img", "游戏界面", "结算", "评价", "全连.png")
-        )
-        self._失败图 = _安全载图(
-            os.path.join(根目录, "UI-img", "游戏界面", "结算", "评价", "失败.png")
-        )
-        self._新纪录图 = _安全载图(
-            os.path.join(根目录, "UI-img", "游戏界面", "结算", "新纪录.png")
-        )
-        提示目录 = os.path.join(根目录, "UI-img", "游戏界面", "结算", "提示")
-        self._提示图集 = {}
-        for 名称 in ("下一把", "继续挑战", "是否续币", "游戏结束", "赠送一把"):
-            图 = _安全载图(os.path.join(提示目录, f"{名称}.png"))
-            if 图 is not None:
-                self._提示图集[名称] = 图
-        self._倒计时图集 = {}
-        数字目录 = os.path.join(提示目录, "数字-倒计时")
-        for idx in range(10):
-            图 = _安全载图(os.path.join(数字目录, f"{idx}.png"))
-            if 图 is not None:
-                self._倒计时图集[str(idx)] = 图
-        self._是按钮图 = _安全载图(os.path.join(提示目录, "是.png"))
-        self._否按钮图 = _安全载图(os.path.join(提示目录, "否.png"))
-
-        小窗目录 = os.path.join(根目录, "UI-img", "游戏界面", "结算", "结算等级小窗")
-        self._等级窗背景图 = _安全载图(os.path.join(小窗目录, "背景.png"))
-        self._等级窗底图 = _安全载图(os.path.join(小窗目录, "UI_I516.png"))
-        if self._等级窗背景图 is None and self._等级窗底图 is not None:
-            self._等级窗背景图 = self._等级窗底图
-            self._等级窗底图 = None
-        经验条目录 = os.path.join(根目录, "UI-img", "经验条")
-        self._花式经验框图 = _安全载图(os.path.join(经验条目录, "花式经验-框.png"))
-        self._花式经验值图 = _安全载图(os.path.join(经验条目录, "花式经验-值.png"))
-        self._竞速经验框图 = _安全载图(os.path.join(经验条目录, "竞速经验-框.png"))
-        self._竞速经验值图 = _安全载图(os.path.join(经验条目录, "竞速经验-值.png"))
-        self._经验数字图集 = {}
-        数字目录 = os.path.join(小窗目录, "经验数字")
-        for 名称 in ["+", "0", "1", "2", "3", "4", "5", "6", "7", "8", "9"]:
-            图 = _安全载图(os.path.join(数字目录, f"{名称}.png"))
-            if 图 is not None:
-                self._经验数字图集[名称] = 图
-        self._升级图集 = {}
-        升级目录 = os.path.join(小窗目录, "升级动画素材")
-        for 名称 in ["升级", "左上", "右上", "左下", "右下"]:
-            图 = _安全载图(os.path.join(升级目录, f"{名称}.png"))
-            if 图 is not None:
-                self._升级图集[名称] = 图
-        联网图路径 = str(
-            (self.上下文.get("资源", {}) or {}).get("投币_联网图标", "") or ""
-        )
-        self._联网原图 = _安全载图(联网图路径, 透明=True)
-
     def _绘制结算面板(self, 屏幕: pygame.Surface, 面板矩形: pygame.Rect, 经过秒: float):
         屏幕尺寸 = 屏幕.get_size()
         面板矩形 = self._取布局矩形(屏幕尺寸, "panel", 面板矩形)
@@ -2890,3 +2748,302 @@ class 场景_结算(场景基类):
         if 主图结果 is not None:
             图像键, 中心x, 中心y, 宽, 高, 透明度 = 主图结果
             _画单图(图像键, 中心x, 中心y, 宽, 高, 透明度)
+
+    def _构建返回选歌动作(self) -> dict:
+        状态 = self.上下文.get("状态", {})
+        if not isinstance(状态, dict):
+            状态 = {}
+
+        加载页载荷 = 状态.get("加载页_载荷", {})
+        if not isinstance(加载页载荷, dict):
+            加载页载荷 = {}
+
+        def _取首个非空文本(*候选值) -> str:
+            for 候选值项 in 候选值:
+                try:
+                    文本 = str(候选值项 or "").strip()
+                except Exception:
+                    文本 = ""
+                if 文本:
+                    return 文本
+            return ""
+
+        def _取首个整数(默认值: int, *候选值) -> int:
+            for 候选值项 in 候选值:
+                try:
+                    if 候选值项 is None or str(候选值项).strip() == "":
+                        continue
+                    return int(候选值项)
+                except Exception:
+                    continue
+            return int(默认值)
+
+        def _取首个布尔值(默认值: bool, *候选值) -> bool:
+            for 候选值项 in 候选值:
+                if isinstance(候选值项, bool):
+                    return 候选值项
+                try:
+                    文本 = str(候选值项 or "").strip().lower()
+                except Exception:
+                    文本 = ""
+                if not 文本:
+                    continue
+                if 文本 in ("1", "true", "yes", "y", "on"):
+                    return True
+                if 文本 in ("0", "false", "no", "n", "off"):
+                    return False
+            return bool(默认值)
+
+        选歌类型 = _取首个非空文本(
+            self._载荷.get("选歌类型", ""),
+            self._载荷.get("类型", ""),
+            self._载荷.get("大模式", ""),
+            状态.get("选歌_类型", ""),
+            状态.get("大模式", ""),
+            状态.get("songs子文件夹", ""),
+            加载页载荷.get("选歌类型", ""),
+            加载页载荷.get("类型", ""),
+            加载页载荷.get("大模式", ""),
+            "竞速",
+        )
+
+        选歌模式 = _取首个非空文本(
+            self._载荷.get("选歌模式", ""),
+            self._载荷.get("模式", ""),
+            self._载荷.get("子模式", ""),
+            状态.get("选歌_模式", ""),
+            状态.get("子模式", ""),
+            加载页载荷.get("选歌模式", ""),
+            加载页载荷.get("模式", ""),
+            加载页载荷.get("子模式", ""),
+            "竞速",
+        )
+
+        恢复原始索引 = _取首个整数(
+            -1,
+            self._载荷.get("选歌原始索引", None),
+            self._载荷.get("原始索引", None),
+            状态.get("选歌_恢复原始索引", None),
+            状态.get("选歌原始索引", None),
+            加载页载荷.get("选歌原始索引", None),
+        )
+
+        恢复详情页 = _取首个布尔值(
+            False,
+            self._载荷.get("选歌恢复详情页", None),
+            状态.get("选歌_恢复详情页", None),
+            加载页载荷.get("选歌恢复详情页", None),
+        )
+
+        return {
+            "类型": "选歌",
+            "选歌类型": 选歌类型,
+            "选歌模式": 选歌模式,
+            "大模式": 选歌类型,
+            "子模式": 选歌模式,
+            "songs子文件夹": 选歌类型,
+            "选歌原始索引": int(恢复原始索引),
+            "选歌恢复详情页": bool(恢复详情页),
+        }
+
+    def _返回选歌(self, 动作: Optional[dict] = None):
+        状态 = (
+            self.上下文.get("状态", {})
+            if isinstance(self.上下文.get("状态", {}), dict)
+            else {}
+        )
+        动作 = 动作 if isinstance(动作, dict) else {}
+
+        加载页载荷 = 状态.get("加载页_载荷", {})
+        if not isinstance(加载页载荷, dict):
+            加载页载荷 = {}
+
+        def _取首个非空文本(*候选值) -> str:
+            for 候选值项 in 候选值:
+                try:
+                    文本 = str(候选值项 or "").strip()
+                except Exception:
+                    文本 = ""
+                if 文本:
+                    return 文本
+            return ""
+
+        def _取首个整数(默认值: int, *候选值) -> int:
+            for 候选值项 in 候选值:
+                try:
+                    if 候选值项 is None or str(候选值项).strip() == "":
+                        continue
+                    return int(候选值项)
+                except Exception:
+                    continue
+            return int(默认值)
+
+        def _取首个布尔值(默认值: bool, *候选值) -> bool:
+            for 候选值项 in 候选值:
+                if isinstance(候选值项, bool):
+                    return 候选值项
+                try:
+                    文本 = str(候选值项 or "").strip().lower()
+                except Exception:
+                    文本 = ""
+                if not 文本:
+                    continue
+                if 文本 in ("1", "true", "yes", "y", "on"):
+                    return True
+                if 文本 in ("0", "false", "no", "n", "off"):
+                    return False
+            return bool(默认值)
+
+        try:
+            选歌类型 = _取首个非空文本(
+                动作.get("选歌类型", ""),
+                动作.get("大模式", ""),
+                self._载荷.get("选歌类型", ""),
+                self._载荷.get("类型", ""),
+                self._载荷.get("大模式", ""),
+                状态.get("选歌_类型", ""),
+                状态.get("大模式", ""),
+                状态.get("songs子文件夹", ""),
+                加载页载荷.get("选歌类型", ""),
+                加载页载荷.get("类型", ""),
+                加载页载荷.get("大模式", ""),
+                "竞速",
+            )
+
+            选歌模式 = _取首个非空文本(
+                动作.get("选歌模式", ""),
+                动作.get("子模式", ""),
+                self._载荷.get("选歌模式", ""),
+                self._载荷.get("模式", ""),
+                self._载荷.get("子模式", ""),
+                状态.get("选歌_模式", ""),
+                状态.get("子模式", ""),
+                加载页载荷.get("选歌模式", ""),
+                加载页载荷.get("模式", ""),
+                加载页载荷.get("子模式", ""),
+                "竞速",
+            )
+
+            恢复原始索引 = _取首个整数(
+                -1,
+                动作.get("选歌原始索引", None),
+                self._载荷.get("选歌原始索引", None),
+                self._载荷.get("原始索引", None),
+                状态.get("选歌_恢复原始索引", None),
+                状态.get("选歌原始索引", None),
+                加载页载荷.get("选歌原始索引", None),
+            )
+
+            恢复详情页 = _取首个布尔值(
+                False,
+                动作.get("选歌恢复详情页", None),
+                self._载荷.get("选歌恢复详情页", None),
+                状态.get("选歌_恢复详情页", None),
+                加载页载荷.get("选歌恢复详情页", None),
+            )
+
+            状态["选歌_类型"] = 选歌类型
+            状态["选歌_模式"] = 选歌模式
+            状态["大模式"] = 选歌类型
+            状态["子模式"] = 选歌模式
+            状态["songs子文件夹"] = 选歌类型
+            状态["选歌_恢复原始索引"] = int(恢复原始索引)
+            状态["选歌_恢复详情页"] = bool(恢复详情页)
+        except Exception:
+            pass
+
+        return {"切换到": "选歌", "禁用黑屏过渡": True}
+
+    def 退出(self):
+        try:
+            if self._结算音效通道 is not None:
+                self._结算音效通道.stop()
+        except Exception:
+            pass
+
+        self._背景视频播放器 = None
+        self._背景视频路径 = ""
+
+    def _加载资源(self):
+        根目录 = str((self.上下文.get("资源", {}) or {}).get("根", "") or os.getcwd())
+
+        背景路径 = os.path.join(根目录, "冷资源", "backimages", "选歌界面.png")
+        self._背景图 = _安全载图(背景路径, 透明=False)
+
+        self._面板图 = _安全载图(
+            os.path.join(根目录, "UI-img", "游戏界面", "结算", "结算背景通用.png")
+        )
+        self._封面图 = _安全载图(str(self._载荷.get("封面路径", "") or ""))
+
+        self._星星图 = _安全载图(
+            os.path.join(根目录, "UI-img", "选歌界面资源", "小星星", "小星星.png")
+        )
+
+        评级 = str(self._载荷.get("评级", "F") or "F").strip().lower()
+        self._评级图 = _安全载图(
+            os.path.join(根目录, "UI-img", "游戏界面", "结算", "评价", f"{评级}.png")
+        )
+        self._全连图 = _安全载图(
+            os.path.join(根目录, "UI-img", "游戏界面", "结算", "评价", "全连.png")
+        )
+        self._失败图 = _安全载图(
+            os.path.join(根目录, "UI-img", "游戏界面", "结算", "评价", "失败.png")
+        )
+        self._新纪录图 = _安全载图(
+            os.path.join(根目录, "UI-img", "游戏界面", "结算", "新纪录.png")
+        )
+
+        提示目录 = os.path.join(根目录, "UI-img", "游戏界面", "结算", "提示")
+        self._提示图集 = {}
+        for 名称 in ("下一把", "继续挑战", "是否续币", "游戏结束", "赠送一把"):
+            图 = _安全载图(os.path.join(提示目录, f"{名称}.png"))
+            if 图 is not None:
+                self._提示图集[名称] = 图
+
+        self._倒计时图集 = {}
+        数字目录 = os.path.join(提示目录, "数字-倒计时")
+        for idx in range(10):
+            图 = _安全载图(os.path.join(数字目录, f"{idx}.png"))
+            if 图 is not None:
+                self._倒计时图集[str(idx)] = 图
+
+        self._是按钮图 = _安全载图(os.path.join(提示目录, "是.png"))
+        self._否按钮图 = _安全载图(os.path.join(提示目录, "否.png"))
+
+        小窗目录 = os.path.join(根目录, "UI-img", "游戏界面", "结算", "结算等级小窗")
+        self._等级窗背景图 = _安全载图(os.path.join(小窗目录, "背景.png"))
+        self._等级窗底图 = _安全载图(os.path.join(小窗目录, "UI_I516.png"))
+        if self._等级窗背景图 is None and self._等级窗底图 is not None:
+            self._等级窗背景图 = self._等级窗底图
+            self._等级窗底图 = None
+
+        经验条目录 = os.path.join(根目录, "UI-img", "经验条")
+        self._花式经验框图 = _安全载图(os.path.join(经验条目录, "花式经验-框.png"))
+        self._花式经验值图 = _安全载图(os.path.join(经验条目录, "花式经验-值.png"))
+        self._竞速经验框图 = _安全载图(os.path.join(经验条目录, "竞速经验-框.png"))
+        self._竞速经验值图 = _安全载图(os.path.join(经验条目录, "竞速经验-值.png"))
+
+        self._经验数字图集 = {}
+        数字目录 = os.path.join(小窗目录, "经验数字")
+        for 名称 in ["+", "0", "1", "2", "3", "4", "5", "6", "7", "8", "9"]:
+            图 = _安全载图(os.path.join(数字目录, f"{名称}.png"))
+            if 图 is not None:
+                self._经验数字图集[名称] = 图
+
+        self._升级图集 = {}
+        升级目录 = os.path.join(小窗目录, "升级动画素材")
+        for 名称 in ["升级", "左上", "右上", "左下", "右下"]:
+            图 = _安全载图(os.path.join(升级目录, f"{名称}.png"))
+            if 图 is not None:
+                self._升级图集[名称] = 图
+
+        联网图路径 = str(
+            (self.上下文.get("资源", {}) or {}).get("投币_联网图标", "") or ""
+        )
+        self._联网原图 = _安全载图(联网图路径, 透明=True)
+
+    def _绘制结算背景(self, 屏幕: pygame.Surface):
+        if self._背景图 is not None:
+            self._绘制cover背景(屏幕, self._背景图)
+            return
+        屏幕.fill((0, 0, 0))

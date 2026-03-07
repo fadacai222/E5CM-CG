@@ -148,32 +148,135 @@ def _取运行根目录() -> str:
     return _运行根目录_缓存
 
 
-def _取songs根目录(资源: Optional[dict] = None) -> str:
+def _取songs根目录(资源: Optional[dict] = None, 状态: Optional[dict] = None) -> str:
     global _songs根目录_缓存
 
-    候选路径列表: List[str] = []
-    if isinstance(资源, dict):
-        for 键名 in ("songs根目录", "外置songs根目录"):
-            值 = str(资源.get(键名, "") or "").strip()
-            if 值:
-                候选路径列表.append(os.path.abspath(值))
-        资源根 = str(资源.get("根", "") or "").strip()
-        if 资源根:
-            候选路径列表.append(os.path.abspath(os.path.join(资源根, "songs")))
+    def _规范路径(路径值) -> str:
+        try:
+            文本 = str(路径值 or "").strip()
+        except Exception:
+            文本 = ""
+        if not 文本:
+            return ""
+        try:
+            return os.path.abspath(文本)
+        except Exception:
+            return ""
 
-    运行根目录 = _取运行根目录()
-    候选路径列表.append(os.path.abspath(os.path.join(运行根目录, "songs")))
-    候选路径列表.append(os.path.abspath(os.path.join(_取项目根目录(), "songs")))
+    def _加入候选(候选路径列表: List[str], 路径值):
+        路径 = _规范路径(路径值)
+        if 路径:
+            候选路径列表.append(路径)
 
-    for 候选路径 in 候选路径列表:
-        if 候选路径 and os.path.isdir(候选路径):
-            _songs根目录_缓存 = 候选路径
-            return 候选路径
+    def _向上搜索songs(起点路径: str, 最大层数: int = 8) -> str:
+        当前路径 = _规范路径(起点路径)
+        if not 当前路径:
+            return ""
+
+        if os.path.isfile(当前路径):
+            当前路径 = os.path.dirname(当前路径)
+
+        for _ in range(max(1, int(最大层数))):
+            songs路径 = os.path.join(当前路径, "songs")
+            try:
+                if os.path.isdir(songs路径):
+                    return os.path.abspath(songs路径)
+            except Exception:
+                pass
+
+            上级路径 = os.path.dirname(当前路径)
+            if 上级路径 == 当前路径:
+                break
+            当前路径 = 上级路径
+
+        return ""
 
     if _songs根目录_缓存:
-        return _songs根目录_缓存
+        try:
+            if os.path.isdir(_songs根目录_缓存):
+                return os.path.abspath(_songs根目录_缓存)
+        except Exception:
+            pass
+        _songs根目录_缓存 = None
 
-    默认路径 = os.path.abspath(os.path.join(运行根目录, "songs"))
+    候选路径列表: List[str] = []
+
+    if isinstance(状态, dict):
+        _加入候选(候选路径列表, 状态.get("songs根目录", ""))
+        _加入候选(候选路径列表, 状态.get("外置songs根目录", ""))
+
+    if isinstance(资源, dict):
+        _加入候选(候选路径列表, 资源.get("songs根目录", ""))
+        _加入候选(候选路径列表, 资源.get("外置songs根目录", ""))
+
+        资源根目录 = _规范路径(资源.get("根", ""))
+        if 资源根目录:
+            _加入候选(候选路径列表, os.path.join(资源根目录, "songs"))
+
+    try:
+        if getattr(sys, "frozen", False):
+            exe目录 = os.path.dirname(os.path.abspath(sys.executable))
+            _加入候选(候选路径列表, os.path.join(exe目录, "songs"))
+            _加入候选(候选路径列表, _向上搜索songs(exe目录, 最大层数=8))
+    except Exception:
+        pass
+
+    try:
+        启动目录 = os.path.dirname(os.path.abspath(sys.argv[0]))
+        _加入候选(候选路径列表, os.path.join(启动目录, "songs"))
+        _加入候选(候选路径列表, _向上搜索songs(启动目录, 最大层数=8))
+    except Exception:
+        pass
+
+    try:
+        运行根目录 = _取运行根目录()
+        _加入候选(候选路径列表, os.path.join(运行根目录, "songs"))
+        _加入候选(候选路径列表, _向上搜索songs(运行根目录, 最大层数=8))
+    except Exception:
+        pass
+
+    try:
+        项目根目录 = _取项目根目录()
+        _加入候选(候选路径列表, os.path.join(项目根目录, "songs"))
+        _加入候选(候选路径列表, _向上搜索songs(项目根目录, 最大层数=8))
+    except Exception:
+        pass
+
+    try:
+        当前工作目录 = os.getcwd()
+        _加入候选(候选路径列表, os.path.join(当前工作目录, "songs"))
+        _加入候选(候选路径列表, _向上搜索songs(当前工作目录, 最大层数=8))
+    except Exception:
+        pass
+
+    已检查集合: Set[str] = set()
+    for 候选路径 in 候选路径列表:
+        标准路径 = _规范路径(候选路径)
+        if (not 标准路径) or (标准路径 in 已检查集合):
+            continue
+        已检查集合.add(标准路径)
+
+        try:
+            if os.path.isdir(标准路径):
+                _songs根目录_缓存 = 标准路径
+                return 标准路径
+        except Exception:
+            continue
+
+    默认根目录 = ""
+    try:
+        if getattr(sys, "frozen", False):
+            默认根目录 = os.path.dirname(os.path.abspath(sys.executable))
+    except Exception:
+        默认根目录 = ""
+
+    if not 默认根目录:
+        try:
+            默认根目录 = _取运行根目录()
+        except Exception:
+            默认根目录 = os.getcwd()
+
+    默认路径 = os.path.abspath(os.path.join(默认根目录, "songs"))
     _songs根目录_缓存 = 默认路径
     return 默认路径
 
@@ -235,44 +338,184 @@ def _解析选歌入口参数(状态: dict, songs根目录: str) -> Tuple[str, s
     if not isinstance(状态, dict):
         状态 = {}
 
+    加载页载荷 = 状态.get("加载页_载荷", {})
+    if not isinstance(加载页载荷, dict):
+        加载页载荷 = {}
+
+    def _转文本(值) -> str:
+        try:
+            return str(值 or "").strip()
+        except Exception:
+            return ""
+
+    def _取首个非空(*候选值) -> str:
+        for 候选值 in 候选值:
+            文本 = _转文本(候选值)
+            if 文本:
+                return 文本
+        return ""
+
+    def _生成别名列表(名称: str) -> List[str]:
+        原始名称 = _转文本(名称)
+        if not 原始名称:
+            return []
+
+        归一名称 = _归一化目录名(原始名称)
+        别名列表: List[str] = [原始名称]
+
+        if ("竞" in 原始名称) or ("speed" in 归一名称):
+            别名列表.extend(["竞速", "speed", "Speed"])
+        if ("花" in 原始名称) or ("fancy" in 归一名称):
+            别名列表.extend(["花式", "fancy", "Fancy"])
+        if ("派对" in 原始名称) or ("party" in 归一名称):
+            别名列表.extend(["派对", "party", "Party"])
+        if ("表演" in 原始名称) or ("show" in 归一名称):
+            别名列表.extend(["表演", "show", "Show"])
+        if ("学习" in 原始名称) or ("easy" in 归一名称) or ("learn" in 归一名称):
+            别名列表.extend(["学习", "easy", "learn", "Easy", "Learn"])
+        if ("疯狂" in 原始名称) or ("crazy" in 归一名称):
+            别名列表.extend(["疯狂", "crazy", "Crazy"])
+        if ("混音" in 原始名称) or ("mix" in 归一名称) or ("remix" in 归一名称):
+            别名列表.extend(["混音", "mix", "remix", "Mix", "Remix"])
+        if ("情侣" in 原始名称) or ("lover" in 归一名称):
+            别名列表.extend(["情侣", "lover", "Lover"])
+        if ("双踏板" in 原始名称) or ("club" in 归一名称):
+            别名列表.extend(["双踏板", "club", "Club"])
+
+        去重后列表: List[str] = []
+        已出现集合: Set[str] = set()
+        for 别名 in 别名列表:
+            归一键 = _归一化目录名(别名)
+            if (not 归一键) or (归一键 in 已出现集合):
+                continue
+            已出现集合.add(归一键)
+            去重后列表.append(str(别名))
+        return 去重后列表
+
+    def _尝试修复songs根目录(原始songs根目录: str) -> str:
+        候选路径列表: List[str] = []
+
+        def _加入(路径值):
+            try:
+                路径文本 = str(路径值 or "").strip()
+            except Exception:
+                路径文本 = ""
+            if not 路径文本:
+                return
+            try:
+                候选路径列表.append(os.path.abspath(路径文本))
+            except Exception:
+                pass
+
+        _加入(原始songs根目录)
+        _加入(状态.get("songs根目录", ""))
+        _加入(os.path.join(_取运行根目录(), "songs"))
+        _加入(os.path.join(_取项目根目录(), "songs"))
+
+        try:
+            if getattr(sys, "frozen", False):
+                _加入(
+                    os.path.join(
+                        os.path.dirname(os.path.abspath(sys.executable)), "songs"
+                    )
+                )
+        except Exception:
+            pass
+
+        已检查集合: Set[str] = set()
+        for 候选路径 in 候选路径列表:
+            if (not 候选路径) or (候选路径 in 已检查集合):
+                continue
+            已检查集合.add(候选路径)
+            try:
+                if os.path.isdir(候选路径):
+                    return 候选路径
+            except Exception:
+                continue
+
+        return _转文本(原始songs根目录)
+
+    def _匹配目录名_支持别名(
+        父目录: str, 候选名称列表: List[str]
+    ) -> Tuple[str, List[str]]:
+        子目录列表 = _列出一级子目录(父目录)
+        if not 子目录列表:
+            return "", []
+
+        for 候选名称 in 候选名称列表:
+            for 别名 in _生成别名列表(候选名称):
+                匹配结果 = _在现有名称中匹配(子目录列表, 别名)
+                if 匹配结果:
+                    return 匹配结果, 子目录列表
+
+        return "", 子目录列表
+
+    songs根目录 = _尝试修复songs根目录(songs根目录)
+
     类型候选列表 = [
         状态.get("选歌_类型", ""),
         状态.get("大模式", ""),
         状态.get("songs子文件夹", ""),
+        状态.get("选歌类型", ""),
+        加载页载荷.get("选歌类型", ""),
+        加载页载荷.get("类型", ""),
+        加载页载荷.get("大模式", ""),
     ]
+
     模式候选列表 = [
         状态.get("选歌_模式", ""),
         状态.get("子模式", ""),
+        状态.get("选歌模式", ""),
+        加载页载荷.get("选歌模式", ""),
+        加载页载荷.get("模式", ""),
+        加载页载荷.get("子模式", ""),
     ]
 
-    类型名 = _匹配子目录名(songs根目录, [str(x or "") for x in 类型候选列表])
-    if not 类型名:
-        所有类型列表 = _列出一级子目录(songs根目录)
-        if len(所有类型列表) == 1:
-            类型名 = 所有类型列表[0]
+    原始类型候选 = _取首个非空(*类型候选列表)
+    原始模式候选 = _取首个非空(*模式候选列表)
+
+    类型名, 所有类型列表 = _匹配目录名_支持别名(
+        songs根目录, [str(x or "") for x in 类型候选列表]
+    )
+    if not 类型名 and len(所有类型列表) == 1:
+        类型名 = 所有类型列表[0]
+    elif not 类型名 and 所有类型列表:
+        类型名 = 所有类型列表[0]
 
     模式父目录 = os.path.join(songs根目录, 类型名) if 类型名 else ""
-    模式名 = _匹配子目录名(模式父目录, [str(x or "") for x in 模式候选列表])
+    模式名, 所有模式列表 = _匹配目录名_支持别名(
+        模式父目录, [str(x or "") for x in 模式候选列表]
+    )
+    if not 模式名 and len(所有模式列表) == 1:
+        模式名 = 所有模式列表[0]
+    elif not 模式名 and 所有模式列表:
+        模式名 = 所有模式列表[0]
 
-    if (not 模式名) and 模式父目录:
-        所有模式列表 = _列出一级子目录(模式父目录)
-        if len(所有模式列表) == 1:
-            模式名 = 所有模式列表[0]
+    最终类型名 = str(类型名 or 原始类型候选 or "")
+    最终模式名 = str(模式名 or 原始模式候选 or "")
 
-    if 类型名:
-        状态["选歌_类型"] = 类型名
-        if not str(状态.get("大模式", "") or "").strip():
+    if 最终类型名:
+        状态["选歌_类型"] = 最终类型名
+        if not _转文本(状态.get("大模式", "")):
+            状态["大模式"] = 最终类型名
+        if not _转文本(状态.get("songs子文件夹", "")):
+            状态["songs子文件夹"] = 最终类型名
+        if 类型名:
             状态["大模式"] = 类型名
+            状态["songs子文件夹"] = 类型名
     else:
         状态.pop("选歌_类型", None)
 
-    if 模式名:
-        状态["选歌_模式"] = 模式名
-        状态["子模式"] = 模式名
+    if 最终模式名:
+        状态["选歌_模式"] = 最终模式名
+        if not _转文本(状态.get("子模式", "")):
+            状态["子模式"] = 最终模式名
+        if 模式名:
+            状态["子模式"] = 模式名
     else:
         状态.pop("选歌_模式", None)
 
-    return str(类型名 or ""), str(模式名 or "")
+    return 最终类型名, 最终模式名
 
 
 class 场景_选歌(场景基类):
@@ -300,7 +543,6 @@ class 场景_选歌(场景基类):
     def 调试_导入布局(self, 数据: dict):
         return
 
-    # ---- 生命周期 ----
     def 进入(self, 载荷=None):
         资源 = self.上下文.get("资源", {})
         状态 = self.上下文.get("状态", {})
@@ -308,8 +550,65 @@ class 场景_选歌(场景基类):
             状态 = {}
             self.上下文["状态"] = 状态
 
+        进入载荷 = dict(载荷) if isinstance(载荷, dict) else {}
+
+        def _转文本(值) -> str:
+            try:
+                return str(值 or "").strip()
+            except Exception:
+                return ""
+
+        def _写入状态(键名: str, 值):
+            if 键名 == "加载页_载荷":
+                if isinstance(值, dict):
+                    状态[键名] = dict(值)
+                return
+
+            if 键名 in ("选歌原始索引", "选歌_恢复原始索引"):
+                try:
+                    状态[键名] = int(值)
+                except Exception:
+                    pass
+                return
+
+            if 键名 in ("选歌恢复详情页", "选歌_恢复详情页"):
+                状态[键名] = bool(值)
+                return
+
+            文本 = _转文本(值)
+            if 文本:
+                状态[键名] = 文本
+
+        if 进入载荷:
+            _写入状态("songs根目录", 进入载荷.get("songs根目录", ""))
+            _写入状态("外置songs根目录", 进入载荷.get("外置songs根目录", ""))
+            _写入状态("选歌_BGM", 进入载荷.get("选歌_BGM", ""))
+            _写入状态("加载页_载荷", 进入载荷.get("加载页_载荷", {}))
+            _写入状态("选歌_恢复原始索引", 进入载荷.get("选歌原始索引", None))
+            _写入状态("选歌_恢复详情页", 进入载荷.get("选歌恢复详情页", False))
+
+            载荷选歌类型 = _转文本(进入载荷.get("选歌类型", ""))
+            载荷选歌模式 = _转文本(进入载荷.get("选歌模式", ""))
+            载荷类型 = _转文本(进入载荷.get("类型", ""))
+            载荷模式 = _转文本(进入载荷.get("模式", ""))
+            载荷大模式 = _转文本(进入载荷.get("大模式", ""))
+            载荷子模式 = _转文本(进入载荷.get("子模式", ""))
+            载荷songs子文件夹 = _转文本(进入载荷.get("songs子文件夹", ""))
+
+            最终类型 = 载荷选歌类型 or 载荷大模式 or 载荷类型 or 载荷songs子文件夹
+            最终模式 = 载荷选歌模式 or 载荷子模式 or 载荷模式
+
+            if 最终类型:
+                状态["选歌_类型"] = 最终类型
+                状态["大模式"] = 最终类型
+                状态["songs子文件夹"] = 最终类型
+
+            if 最终模式:
+                状态["选歌_模式"] = 最终模式
+                状态["子模式"] = 最终模式
+
         资源根目录 = _取项目根目录()
-        songs根目录 = _取songs根目录(资源)
+        songs根目录 = _取songs根目录(资源, 状态)
         玩家数 = int(状态.get("玩家数", 1) or 1)
 
         类型名, 模式名 = _解析选歌入口参数(状态, songs根目录)
@@ -329,7 +628,6 @@ class 场景_选歌(场景基类):
         except Exception:
             pass
 
-        # ✅ 进入选歌前：停掉主流程的 音乐管理（否则和 pygame.mixer.music 撞车）
         try:
             self.上下文["音乐"].停止()
         except Exception:
@@ -537,8 +835,10 @@ class 场景_选歌(场景基类):
 
     def _根据退出状态切场景(self, 退出状态: str):
         状态 = self.上下文.get("状态", {})
+        if not isinstance(状态, dict):
+            状态 = {}
+            self.上下文["状态"] = 状态
 
-        # ✅ 先尝试取载荷（给 GO_LOADING 用）
         载荷 = {}
         if 退出状态 == "GO_LOADING":
             try:
@@ -551,34 +851,53 @@ class 场景_选歌(场景基类):
             except Exception:
                 载荷 = {}
 
-            # 可选：也写进全局状态，方便后续“进游戏”继续读
             try:
                 状态["加载页_载荷"] = dict(载荷)
             except Exception:
                 pass
 
-        # ✅ 无论什么退出，都清理“选歌场景输入参数”，避免下次误用
-        try:
-            状态.pop("选歌_类型", None)
-            状态.pop("选歌_模式", None)
-            状态.pop("选歌_BGM", None)
-        except Exception:
-            pass
+            try:
+                载荷类型 = str(载荷.get("类型", "") or "").strip()
+            except Exception:
+                载荷类型 = ""
+            try:
+                载荷模式 = str(载荷.get("模式", "") or "").strip()
+            except Exception:
+                载荷模式 = ""
 
-        # ✅ GO_LOADING：切到加载页（并把载荷传过去）
-        if 退出状态 == "GO_LOADING":
+            if 载荷类型:
+                状态["选歌_类型"] = 载荷类型
+                状态["大模式"] = 载荷类型
+                状态["songs子文件夹"] = 载荷类型
+
+            if 载荷模式:
+                状态["选歌_模式"] = 载荷模式
+                状态["子模式"] = 载荷模式
+
+            try:
+                状态.pop("选歌_BGM", None)
+            except Exception:
+                pass
+
             return {"切换到": "加载页", "载荷": 载荷, "禁用黑屏过渡": True}
 
         if 退出状态 == "RESELECT_MAIN":
-            # ✅ 回到大模式重新选
             try:
+                状态.pop("选歌_类型", None)
+                状态.pop("选歌_模式", None)
+                状态.pop("选歌_BGM", None)
                 状态["大模式"] = ""
                 状态["子模式"] = ""
+                状态["songs子文件夹"] = ""
             except Exception:
                 pass
             return {"切换到": "大模式", "禁用黑屏过渡": True}
 
-        # 其它：默认回子模式
+        try:
+            状态.pop("选歌_BGM", None)
+        except Exception:
+            pass
+
         return {"切换到": "子模式", "禁用黑屏过渡": True}
 
 

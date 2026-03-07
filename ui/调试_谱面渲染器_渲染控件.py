@@ -8,32 +8,126 @@ import pygame
 
 
 def _取项目根目录() -> str:
-    起点候选 = []
     try:
-        if getattr(__import__("sys"), "frozen", False):
-            import sys
-
-            起点候选.append(os.path.dirname(os.path.abspath(sys.executable)))
-        else:
-            起点候选.append(os.path.dirname(os.path.abspath(__file__)))
+        已缓存路径 = getattr(_取项目根目录, "_缓存路径", "")
+        if isinstance(已缓存路径, str) and 已缓存路径 and os.path.isdir(已缓存路径):
+            return 已缓存路径
     except Exception:
         pass
-    起点候选.append(os.getcwd())
 
-    for 起点 in 起点候选:
-        当前 = os.path.abspath(起点)
+    try:
+        import sys
+    except Exception:
+        sys = None
+
+    def _规范路径(路径: str) -> str:
+        try:
+            return os.path.abspath(str(路径 or "").strip())
+        except Exception:
+            return ""
+
+    def _目录评分(目录: str) -> int:
+        try:
+            if (not 目录) or (not os.path.isdir(目录)):
+                return -1
+
+            分数 = 0
+
+            if os.path.isdir(os.path.join(目录, "UI-img")):
+                分数 += 4
+            if os.path.isdir(os.path.join(目录, "json")):
+                分数 += 3
+            if os.path.isdir(os.path.join(目录, "冷资源")):
+                分数 += 2
+            if os.path.isdir(os.path.join(目录, "core")):
+                分数 += 1
+            if os.path.isdir(os.path.join(目录, "ui")):
+                分数 += 1
+
+            return 分数
+        except Exception:
+            return -1
+
+    候选起点列表 = []
+
+    try:
+        if sys and getattr(sys, "frozen", False):
+            临时资源目录 = _规范路径(getattr(sys, "_MEIPASS", ""))
+            if 临时资源目录:
+                候选起点列表.append(临时资源目录)
+
+            可执行目录 = _规范路径(os.path.dirname(os.path.abspath(sys.executable)))
+            if 可执行目录:
+                候选起点列表.append(可执行目录)
+    except Exception:
+        pass
+
+    try:
+        脚本目录 = _规范路径(os.path.dirname(os.path.abspath(__file__)))
+        if 脚本目录:
+            候选起点列表.append(脚本目录)
+    except Exception:
+        pass
+
+    try:
+        工作目录 = _规范路径(os.getcwd())
+        if 工作目录:
+            候选起点列表.append(工作目录)
+    except Exception:
+        pass
+
+    去重后候选 = []
+    已见路径 = set()
+    for 路径 in 候选起点列表:
+        规范后 = _规范路径(路径)
+        if (not 规范后) or (规范后 in 已见路径):
+            continue
+        已见路径.add(规范后)
+        去重后候选.append(规范后)
+
+    最佳目录 = ""
+    最佳分数 = -1
+    已检查目录 = set()
+
+    for 起点 in 去重后候选:
+        当前目录 = 起点
         for _ in range(12):
-            if (
-                os.path.isdir(os.path.join(当前, "core"))
-                and os.path.isdir(os.path.join(当前, "ui"))
-                and os.path.isdir(os.path.join(当前, "songs"))
-            ):
-                return 当前
-            上级 = os.path.dirname(当前)
-            if 上级 == 当前:
+            当前目录 = _规范路径(当前目录)
+            if (not 当前目录) or (当前目录 in 已检查目录):
                 break
-            当前 = 上级
-    return os.path.abspath(起点候选[0])
+
+            已检查目录.add(当前目录)
+            当前分数 = _目录评分(当前目录)
+
+            if 当前分数 > 最佳分数:
+                最佳分数 = 当前分数
+                最佳目录 = 当前目录
+
+            if 当前分数 >= 7:
+                setattr(_取项目根目录, "_缓存路径", 当前目录)
+                return 当前目录
+
+            上级目录 = os.path.dirname(当前目录)
+            if 上级目录 == 当前目录:
+                break
+            当前目录 = 上级目录
+
+    if 最佳目录:
+        setattr(_取项目根目录, "_缓存路径", 最佳目录)
+        return 最佳目录
+
+    for 路径 in 去重后候选:
+        if 路径 and os.path.isdir(路径):
+            setattr(_取项目根目录, "_缓存路径", 路径)
+            return 路径
+
+    try:
+        回退目录 = _规范路径(os.getcwd())
+    except Exception:
+        回退目录 = "."
+
+    setattr(_取项目根目录, "_缓存路径", 回退目录)
+    return 回退目录
 
 
 def _安全读json(路径: str) -> dict:
@@ -212,15 +306,17 @@ class 谱面渲染器布局管理器:
         self._圆罩缓存: Dict[Tuple[int, int], pygame.Surface] = {}
         self._羽化罩缓存: Dict[Tuple[int, int, int], pygame.Surface] = {}
         self._字体缓存: Dict[Tuple[str, int, bool], pygame.font.Font] = {}
-        self._文本图缓存: Dict[Tuple[str, str, int, bool, Tuple[int, int, int]], pygame.Surface] = {}
+        self._文本图缓存: Dict[
+            Tuple[str, str, int, bool, Tuple[int, int, int]], pygame.Surface
+        ] = {}
         self._缩放图缓存: Dict[Tuple[str, int, int], pygame.Surface] = {}
         self._皮肤帧处理缓存: Dict[Tuple[str, str], Optional[pygame.Surface]] = {}
-        self._渲染清单缓存: Dict[
-            Tuple[Any, ...], List[Dict[str, Any]]
-        ] = {}
+        self._渲染清单缓存: Dict[Tuple[Any, ...], List[Dict[str, Any]]] = {}
         self._布局依赖键: set[str] = set()
 
-        self._默认字体路径 = os.path.join(self.项目根, "冷资源", "字体", "方正黑体简体.TTF")
+        self._默认字体路径 = os.path.join(
+            self.项目根, "冷资源", "字体", "方正黑体简体.TTF"
+        )
 
         self._载入(强制=True)
 
@@ -762,9 +858,7 @@ class 谱面渲染器布局管理器:
             标注文本 += f" [{控件类型}]"
 
         try:
-            文图 = self._取文本图(
-                "调试标注", 标注文本, 12, True, (255, 255, 255), 255
-            )
+            文图 = self._取文本图("调试标注", 标注文本, 12, True, (255, 255, 255), 255)
         except Exception:
             文图 = None
         if 文图 is None:
@@ -865,16 +959,16 @@ class 谱面渲染器布局管理器:
         仅绘制根id: Optional[str] = None,
         仅绘制控件ids: Optional[List[str]] = None,
     ) -> List[Dict[str, Any]]:
-        缓存键 = self._取渲染清单缓存键(
-            屏幕尺寸, 上下文, 仅绘制根id, 仅绘制控件ids
-        )
+        缓存键 = self._取渲染清单缓存键(屏幕尺寸, 上下文, 仅绘制根id, 仅绘制控件ids)
         if 缓存键 in self._渲染清单缓存:
             return self._复制渲染表(self._渲染清单缓存[缓存键])
 
         全局缩放 = float(self._取全局缩放(屏幕尺寸))
         隐藏集合: set = set()
         try:
-            原值 = 上下文.get("_调试隐藏控件ids", []) if isinstance(上下文, dict) else []
+            原值 = (
+                上下文.get("_调试隐藏控件ids", []) if isinstance(上下文, dict) else []
+            )
             if isinstance(原值, (list, tuple, set)):
                 隐藏集合 = {str(v) for v in 原值 if str(v or "")}
         except Exception:
@@ -1288,7 +1382,9 @@ class 谱面渲染器布局管理器:
                     字形列表: List[pygame.Surface] = []
                     for ch in 文本:
                         try:
-                            字形列表.append(字体.render(ch, True, 颜色键).convert_alpha())
+                            字形列表.append(
+                                字体.render(ch, True, 颜色键).convert_alpha()
+                            )
                         except Exception:
                             continue
                     if not 字形列表:
@@ -1381,7 +1477,9 @@ class 谱面渲染器布局管理器:
         except Exception:
             玩家序号 = 1
 
-        def _转rgba(值: Any, 默认: Tuple[int, int, int, int]) -> Tuple[int, int, int, int]:
+        def _转rgba(
+            值: Any, 默认: Tuple[int, int, int, int]
+        ) -> Tuple[int, int, int, int]:
             if isinstance(值, (list, tuple)) and len(值) >= 4:
                 try:
                     return (int(值[0]), int(值[1]), int(值[2]), int(值[3]))
@@ -1428,7 +1526,12 @@ class 谱面渲染器布局管理器:
         临时层 = pygame.Surface((头区域.w, 头区域.h), pygame.SRCALPHA)
         振幅 = float(max(3.0, 头区域.w * max(0.14, min(0.34, 幅度系数 * 1.6))))
         前片厚度 = float(
-            max(10.0, min(float(头区域.w) * 0.54, float(头区域.w) * max(0.32, 头宽系数 * 0.46)))
+            max(
+                10.0,
+                min(
+                    float(头区域.w) * 0.54, float(头区域.w) * max(0.32, 头宽系数 * 0.46)
+                ),
+            )
         )
         呼吸相位 = float(当前秒) * max(0.1, 速度) * 0.85
 
@@ -1440,23 +1543,16 @@ class 谱面渲染器布局管理器:
                 s形 = float((1.18 * s) - (0.92 * (s**3)))
                 不规则 = float(
                     math.sin((t + 呼吸相位 * 0.08) * math.pi + 0.42) * 振幅 * 0.18
-                    + math.sin((t * math.pi * 0.5) + 呼吸相位 * 0.33 + 0.9) * 振幅 * 0.09
+                    + math.sin((t * math.pi * 0.5) + 呼吸相位 * 0.33 + 0.9)
+                    * 振幅
+                    * 0.09
                 )
                 顶底收口 = 1.0 - 0.10 * math.cos(t * math.pi * 2.0)
                 位移 = float((s形 * 振幅 + 不规则) * 顶底收口)
                 if 玩家序号 == 2:
-                    x曲线 = (
-                        float(头区域.w) * 0.52
-                        - 前片厚度
-                        - 前片厚度偏移
-                        + 位移
-                    )
+                    x曲线 = float(头区域.w) * 0.52 - 前片厚度 - 前片厚度偏移 + 位移
                 else:
-                    x曲线 = (
-                        float(头区域.w) * 0.48
-                        + 前片厚度偏移
-                        + 位移
-                    )
+                    x曲线 = float(头区域.w) * 0.48 + 前片厚度偏移 + 位移
                 x曲线 = float(max(1.0, min(float(头区域.w - 2), x曲线)))
                 点列.append((int(round(x曲线)), int(y)))
             return 点列
@@ -1546,9 +1642,7 @@ class 谱面渲染器布局管理器:
         except Exception:
             羽化像素 = 8
         try:
-            羽化像素 = int(
-                _取数(上下文.get("调试_暴走血条羽化", 羽化像素), 羽化像素)
-            )
+            羽化像素 = int(_取数(上下文.get("调试_暴走血条羽化", 羽化像素), 羽化像素))
         except Exception:
             pass
         羽化像素 = int(max(0, min(128, 羽化像素)))
@@ -1627,7 +1721,9 @@ class 谱面渲染器布局管理器:
         except Exception:
             当前血量值 = 0.0
 
-        def _取rgba(值: Any, 默认: Tuple[int, int, int, int]) -> Tuple[int, int, int, int]:
+        def _取rgba(
+            值: Any, 默认: Tuple[int, int, int, int]
+        ) -> Tuple[int, int, int, int]:
             if isinstance(值, (list, tuple)) and len(值) >= 4:
                 try:
                     return (int(值[0]), int(值[1]), int(值[2]), int(值[3]))
@@ -1655,7 +1751,9 @@ class 谱面渲染器布局管理器:
         except Exception:
             亮度 = 1.0
         try:
-            不透明度 = float(_取数(上下文.get("调试_血条不透明度"), float(主色[3]) / 255.0))
+            不透明度 = float(
+                _取数(上下文.get("调试_血条不透明度"), float(主色[3]) / 255.0)
+            )
         except Exception:
             不透明度 = float(主色[3]) / 255.0
         主色 = (
@@ -1683,7 +1781,11 @@ class 谱面渲染器布局管理器:
             pass
 
         动态偏移x = (
-            int(round(math.sin(float(当前秒) * float(位移速度) * math.tau) * float(x振幅)))
+            int(
+                round(
+                    math.sin(float(当前秒) * float(位移速度) * math.tau) * float(x振幅)
+                )
+            )
             if abs(x振幅) > 0.01 and abs(位移速度) > 0.01
             else 0
         )
@@ -1966,7 +2068,9 @@ class 谱面渲染器布局管理器:
                     控件定义.get("形状旋转时间键") or 时间键 or "当前谱面秒"
                 ).strip()
                 try:
-                    形状时间秒 = float(上下文.get(形状旋转时间键, 当前播放秒) or 当前播放秒)
+                    形状时间秒 = float(
+                        上下文.get(形状旋转时间键, 当前播放秒) or 当前播放秒
+                    )
                 except Exception:
                     形状时间秒 = float(当前播放秒)
                 try:
@@ -1976,14 +2080,19 @@ class 谱面渲染器布局管理器:
                 形状旋转速度键 = str(控件定义.get("形状旋转速度键") or "").strip()
                 if 形状旋转速度键:
                     try:
-                        形状旋转速度 = float(_取数(上下文.get(形状旋转速度键), 形状旋转速度))
+                        形状旋转速度 = float(
+                            _取数(上下文.get(形状旋转速度键), 形状旋转速度)
+                        )
                     except Exception:
                         pass
                 else:
                     try:
                         if "调试_圆环频谱_背景板旋转速度" in 上下文:
                             形状旋转速度 = float(
-                                _取数(上下文.get("调试_圆环频谱_背景板旋转速度"), 形状旋转速度)
+                                _取数(
+                                    上下文.get("调试_圆环频谱_背景板旋转速度"),
+                                    形状旋转速度,
+                                )
                             )
                     except Exception:
                         pass
@@ -2110,9 +2219,7 @@ class 谱面渲染器布局管理器:
                 return
 
             if 混合 == "add":
-                屏幕.blit(
-                    图2, (绘制x, 绘制y), special_flags=pygame.BLEND_RGBA_ADD
-                )
+                屏幕.blit(图2, (绘制x, 绘制y), special_flags=pygame.BLEND_RGBA_ADD)
             else:
                 屏幕.blit(图2, (绘制x, 绘制y))
             return
@@ -2271,15 +2378,11 @@ class 谱面渲染器布局管理器:
                 比例 = min(float(目标w) / float(原宽), float(目标h) / float(原高))
                 新宽 = int(max(2, 原宽 * 比例))
                 新高 = int(max(2, 原高 * 比例))
-                图2 = self._取缩放图(
-                    f"图片:contain:{id(图源)}", 图源, 新宽, 新高
-                )
+                图2 = self._取缩放图(f"图片:contain:{id(图源)}", 图源, 新宽, 新高)
                 x = 目标矩形.centerx - 新宽 // 2
                 y = 目标矩形.centery - 新高 // 2
             else:
-                图2 = self._取缩放图(
-                    f"图片:stretch:{id(图源)}", 图源, 目标w, 目标h
-                )
+                图2 = self._取缩放图(f"图片:stretch:{id(图源)}", 图源, 目标w, 目标h)
                 x = 目标矩形.x
                 y = 目标矩形.y
 
@@ -2306,9 +2409,15 @@ class 谱面渲染器布局管理器:
 
             if abs(float(旋转度数)) > 0.001:
                 try:
-                    图2 = pygame.transform.rotozoom(图2, -float(旋转度数), 1.0).convert_alpha()
-                    x = int(round(float(目标矩形.centerx) - float(图2.get_width()) * 0.5))
-                    y = int(round(float(目标矩形.centery) - float(图2.get_height()) * 0.5))
+                    图2 = pygame.transform.rotozoom(
+                        图2, -float(旋转度数), 1.0
+                    ).convert_alpha()
+                    x = int(
+                        round(float(目标矩形.centerx) - float(图2.get_width()) * 0.5)
+                    )
+                    y = int(
+                        round(float(目标矩形.centery) - float(图2.get_height()) * 0.5)
+                    )
                 except Exception:
                     pass
 
@@ -2562,7 +2671,11 @@ class 谱面渲染器布局管理器:
             except Exception:
                 速度 = 0.0
             动态偏移x = (
-                int(round(math.sin(float(当前秒) * float(速度) * math.tau) * float(x振幅)))
+                int(
+                    round(
+                        math.sin(float(当前秒) * float(速度) * math.tau) * float(x振幅)
+                    )
+                )
                 if abs(x振幅) > 0.01 and abs(速度) > 0.01
                 else 0
             )

@@ -128,9 +128,9 @@ class _皮肤包:
             self.arrow = self._尝试读贴图集_目录(self.根路径, "arrow")
             self.key = self._尝试读贴图集_目录(self.根路径, "key")
             self.key_effect = self._尝试读贴图集_目录(self.根路径, "key_effect")
-            self.blood_bar = self._尝试读固定贴图集("blood_bar") or self._尝试读贴图集_目录(
-                self.根路径, "blood_bar"
-            )
+            self.blood_bar = self._尝试读固定贴图集(
+                "blood_bar"
+            ) or self._尝试读贴图集_目录(self.根路径, "blood_bar")
             self.judge = self._尝试读固定贴图集("judge") or self._尝试读贴图集_目录(
                 self.根路径, "judge"
             )
@@ -145,9 +145,9 @@ class _皮肤包:
             self.key_effect = self._尝试读贴图集_zip(
                 压缩包, self.压缩包前缀, "key_effect"
             )
-            self.blood_bar = self._尝试读固定贴图集("blood_bar") or self._尝试读贴图集_zip(
-                压缩包, self.压缩包前缀, "blood_bar"
-            )
+            self.blood_bar = self._尝试读固定贴图集(
+                "blood_bar"
+            ) or self._尝试读贴图集_zip(压缩包, self.压缩包前缀, "blood_bar")
             self.judge = self._尝试读固定贴图集("judge") or self._尝试读贴图集_zip(
                 压缩包, self.压缩包前缀, "judge"
             )
@@ -616,7 +616,9 @@ class 谱面渲染器:
         )
         if m:
             序列名 = str(m.group("序列")).rstrip(" _-")
-            return (序列名 if 序列名 else os.path.splitext(基名)[0]), int(m.group("序号"))
+            return (序列名 if 序列名 else os.path.splitext(基名)[0]), int(
+                m.group("序号")
+            )
 
         m2 = re.match(
             r"^(?P<序列>.*?)(?P<序号>\d{1,6})\.(png|jpg|jpeg|webp)$",
@@ -647,9 +649,7 @@ class 谱面渲染器:
         列表.sort(key=lambda it: (int(it[0]), str(it[1])))
         return [str(名) for _, 名 in 列表]
 
-    def _构建击中特效序列映射(
-        self, 帧名列表: List[str]
-    ) -> Dict[str, List[str]]:
+    def _构建击中特效序列映射(self, 帧名列表: List[str]) -> Dict[str, List[str]]:
         映射: Dict[str, List[Tuple[int, str]]] = {}
         for 名 in 帧名列表:
             try:
@@ -670,9 +670,7 @@ class 谱面渲染器:
         return 输出
 
     @staticmethod
-    def _从序列映射选序列(
-        序列映射: Dict[str, List[str]], 候选列表: List[str]
-    ) -> str:
+    def _从序列映射选序列(序列映射: Dict[str, List[str]], 候选列表: List[str]) -> str:
         for 候选 in 候选列表:
             序列帧 = 序列映射.get(str(候选), [])
             if 序列帧:
@@ -693,8 +691,15 @@ class 谱面渲染器:
         if 已缓存 is not None:
             return float(已缓存)
 
-        样本索引: List[int] = [0, len(帧名列表) // 3, (len(帧名列表) * 2) // 3, len(帧名列表) - 1]
-        样本索引 = sorted(set([int(max(0, min(len(帧名列表) - 1, i))) for i in 样本索引]))
+        样本索引: List[int] = [
+            0,
+            len(帧名列表) // 3,
+            (len(帧名列表) * 2) // 3,
+            len(帧名列表) - 1,
+        ]
+        样本索引 = sorted(
+            set([int(max(0, min(len(帧名列表) - 1, i))) for i in 样本索引])
+        )
 
         可见宽样本: List[int] = []
         原图宽 = 0
@@ -713,7 +718,11 @@ class 谱面渲染器:
 
                     rgb = pygame.surfarray.array3d(图)
                     a = pygame.surfarray.array_alpha(图)
-                    亮度 = rgb[:, :, 0].astype(_np.int32) + rgb[:, :, 1].astype(_np.int32) + rgb[:, :, 2].astype(_np.int32)
+                    亮度 = (
+                        rgb[:, :, 0].astype(_np.int32)
+                        + rgb[:, :, 1].astype(_np.int32)
+                        + rgb[:, :, 2].astype(_np.int32)
+                    )
                     亮度阈值 = int(max(140, int(_np.max(亮度) * 0.52)))
                     掩码 = (a >= 20) & (亮度 >= 亮度阈值)
                     列命中 = _np.any(掩码, axis=1)
@@ -761,7 +770,9 @@ class 谱面渲染器:
 
         for 起点 in 起点列表:
             try:
-                当前 = os.path.abspath(起点 if os.path.isdir(起点) else os.path.dirname(起点))
+                当前 = os.path.abspath(
+                    起点 if os.path.isdir(起点) else os.path.dirname(起点)
+                )
             except Exception:
                 continue
             for _ in range(12):
@@ -1089,9 +1100,7 @@ class 谱面渲染器:
                 已切换计数动画 = True
 
             if not 已切换计数动画:
-                self._计数动画剩余秒 = max(
-                    0.0, float(self._计数动画剩余秒) - 时间差秒
-                )
+                self._计数动画剩余秒 = max(0.0, float(self._计数动画剩余秒) - 时间差秒)
                 if self._计数动画剩余秒 <= 0.0:
                     if self._计数动画队列:
                         if float(self._计数动画距上次触发秒) <= float(
@@ -1122,9 +1131,7 @@ class 谱面渲染器:
                 self._计数动画队列.clear()
 
         if self._分数动画剩余秒 > 0.0:
-            self._分数动画剩余秒 = max(
-                0.0, float(self._分数动画剩余秒) - 时间差秒
-            )
+            self._分数动画剩余秒 = max(0.0, float(self._分数动画剩余秒) - 时间差秒)
 
         # ✅ combo 轻闪倒计时
         if hasattr(self, "_combo轻闪剩余秒"):
@@ -1134,6 +1141,117 @@ class 谱面渲染器:
                 )
             except Exception:
                 self._combo轻闪剩余秒 = 0.0
+
+    # def 渲染(
+    #     self,
+    #     屏幕: pygame.Surface,
+    #     输入: 渲染输入,
+    #     字体: pygame.font.Font,
+    #     小字体: pygame.font.Font,
+    # ):
+    #     try:
+    #         self._最近渲染谱面秒 = float(输入.当前谱面秒)
+    #     except Exception:
+    #         self._最近渲染谱面秒 = 0.0
+
+    #     # 1) 顶部HUD
+    #     self._绘制血条(屏幕, 输入, 字体, 小字体)
+
+    #     if bool(getattr(输入, "Note层灰度", False)):
+    #         notes层 = pygame.Surface(屏幕.get_size(), pygame.SRCALPHA)
+    #         # 低血量时只灰化主 notes 层；击中特效序列帧保持彩色单独补绘。
+    #         self._绘制notes层(notes层, 输入, 绘制击中特效=False)
+    #         屏幕.blit(pygame.transform.grayscale(notes层), (0, 0))
+    #         self._绘制击中特效(屏幕, 输入)
+    #     else:
+    #         self._绘制notes层(屏幕, 输入)
+
+    #     诊断 = self.取加载诊断()
+    #     if 诊断:
+    #         文 = 小字体.render(诊断, True, (255, 180, 120))
+    #         屏幕.blit(文, (18, int(输入.血条区域.bottom + 8)))
+
+    #     if 输入.错误提示:
+    #         文2 = 小字体.render(str(输入.错误提示), True, (255, 120, 120))
+    #         屏幕.blit(文2, (18, int(输入.血条区域.bottom + 28)))
+
+    def _取濒死灰化矩形(self, 屏幕: pygame.Surface, 输入: 渲染输入) -> pygame.Rect:
+        屏幕矩形 = 屏幕.get_rect()
+
+        try:
+            箭头宽 = int(max(24, int(getattr(输入, "箭头目标宽", 64) or 64)))
+        except Exception:
+            箭头宽 = 64
+
+        # 优先尝试走布局真实并集矩形，拿到更准的判定区范围
+        try:
+            布局 = self._确保布局管理器()
+            if 布局 is not None:
+                上下文 = self._构建notes装饰上下文(屏幕, 输入)
+                构建清单 = getattr(布局, "_构建渲染清单", None)
+                求并集矩形 = getattr(self, "_求布局清单并集矩形", None)
+
+                if (
+                    isinstance(上下文, dict)
+                    and callable(构建清单)
+                    and callable(求并集矩形)
+                ):
+                    项列表 = 构建清单(
+                        屏幕.get_size(),
+                        上下文,
+                        仅绘制根id="判定区组",
+                    )
+                    if isinstance(项列表, list) and 项列表:
+                        判定区矩形 = 求并集矩形(项列表)
+                        if isinstance(判定区矩形, pygame.Rect):
+                            扩边x = int(max(80, 箭头宽 * 6))
+                            扩边y = int(max(120, 箭头宽 * 14))
+                            return 判定区矩形.inflate(扩边x * 2, 扩边y * 2).clip(
+                                屏幕矩形
+                            )
+        except Exception:
+            pass
+
+        # 兜底：按轨道中心 + 判定线估算一个灰化区域
+        try:
+            轨道中心列表 = [
+                int(v) for v in list(getattr(输入, "轨道中心列表", []) or [])[:5]
+            ]
+        except Exception:
+            轨道中心列表 = []
+
+        try:
+            判定线y = int(getattr(输入, "判定线y", 屏幕矩形.h * 0.72) or 0)
+        except Exception:
+            判定线y = int(屏幕矩形.h * 0.72)
+
+        try:
+            底部y = int(getattr(输入, "底部y", 屏幕矩形.h) or 屏幕矩形.h)
+        except Exception:
+            底部y = 屏幕矩形.h
+
+        if len(轨道中心列表) >= 2:
+            轨道间距 = int(abs(轨道中心列表[1] - 轨道中心列表[0]))
+        else:
+            轨道间距 = int(max(64, 箭头宽))
+
+        if 轨道中心列表:
+            左 = int(min(轨道中心列表) - 轨道间距 * 2)
+            右 = int(max(轨道中心列表) + 轨道间距 * 2)
+        else:
+            左 = int(屏幕矩形.w * 0.25)
+            右 = int(屏幕矩形.w * 0.75)
+
+        上 = int(判定线y - 箭头宽 * 16)
+        下 = int(底部y + 箭头宽 * 3)
+
+        结果矩形 = pygame.Rect(
+            左,
+            上,
+            max(2, 右 - 左),
+            max(2, 下 - 上),
+        )
+        return 结果矩形.clip(屏幕矩形)
 
     def 渲染(
         self,
@@ -1150,11 +1268,70 @@ class 谱面渲染器:
         # 1) 顶部HUD
         self._绘制血条(屏幕, 输入, 字体, 小字体)
 
+        # 2) notes层
         if bool(getattr(输入, "Note层灰度", False)):
-            notes层 = pygame.Surface(屏幕.get_size(), pygame.SRCALPHA)
-            # 低血量时只灰化主 notes 层；击中特效序列帧保持彩色单独补绘。
-            self._绘制notes层(notes层, 输入, 绘制击中特效=False)
-            屏幕.blit(pygame.transform.grayscale(notes层), (0, 0))
+            # 先正常绘制 notes，但不绘制击中特效
+            self._绘制notes层(屏幕, 输入, 绘制击中特效=False)
+
+            # 只对音符活动区域做“伪灰化”，不要整屏 grayscale
+            灰化矩形 = self._取濒死灰化矩形(屏幕, 输入)
+            if isinstance(灰化矩形, pygame.Rect) and 灰化矩形.w > 1 and 灰化矩形.h > 1:
+                try:
+                    需要重建缓存 = False
+
+                    if (not hasattr(self, "_濒死灰化乘算层缓存")) or (
+                        not isinstance(
+                            getattr(self, "_濒死灰化乘算层缓存"), pygame.Surface
+                        )
+                    ):
+                        需要重建缓存 = True
+                    else:
+                        if self._濒死灰化乘算层缓存.get_size() != (
+                            int(灰化矩形.w),
+                            int(灰化矩形.h),
+                        ):
+                            需要重建缓存 = True
+
+                    if (not hasattr(self, "_濒死灰化雾层缓存")) or (
+                        not isinstance(
+                            getattr(self, "_濒死灰化雾层缓存"), pygame.Surface
+                        )
+                    ):
+                        需要重建缓存 = True
+                    else:
+                        if self._濒死灰化雾层缓存.get_size() != (
+                            int(灰化矩形.w),
+                            int(灰化矩形.h),
+                        ):
+                            需要重建缓存 = True
+
+                    if 需要重建缓存:
+                        self._濒死灰化乘算层缓存 = pygame.Surface(
+                            (int(灰化矩形.w), int(灰化矩形.h))
+                        ).convert()
+                        self._濒死灰化雾层缓存 = pygame.Surface(
+                            (int(灰化矩形.w), int(灰化矩形.h)),
+                            pygame.SRCALPHA,
+                        )
+
+                    # 第一层：乘算压暗，制造“去饱和/发灰感”
+                    self._濒死灰化乘算层缓存.fill((150, 150, 150))
+                    屏幕.blit(
+                        self._濒死灰化乘算层缓存,
+                        灰化矩形.topleft,
+                        special_flags=pygame.BLEND_RGB_MULT,
+                    )
+
+                    # 第二层：轻微灰雾，补一点濒死观感
+                    self._濒死灰化雾层缓存.fill((78, 78, 78, 42))
+                    屏幕.blit(
+                        self._濒死灰化雾层缓存,
+                        灰化矩形.topleft,
+                    )
+                except Exception:
+                    pass
+
+            # 击中特效保持彩色
             self._绘制击中特效(屏幕, 输入)
         else:
             self._绘制notes层(屏幕, 输入)
@@ -1205,7 +1382,10 @@ class 谱面渲染器:
             tuple(int(v) for v in list(getattr(输入, "轨道中心列表", []) or [])[:5]),
             int(getattr(输入, "判定线y", 0) or 0),
             int(getattr(输入, "箭头目标宽", 0) or 0),
-            tuple(round(float(v), 4) for v in list(getattr(self, "_按键反馈缩放", []) or [])[:5]),
+            tuple(
+                round(float(v), 4)
+                for v in list(getattr(self, "_按键反馈缩放", []) or [])[:5]
+            ),
             float(self._取游戏区参数().get("判定区宽度系数", 1.0)),
             float(self._取游戏区参数().get("y偏移", 0.0)),
             float(self._取游戏区参数().get("缩放", 1.0)),
@@ -1636,11 +1816,7 @@ class 谱面渲染器:
     ):
         缓存图 = getattr(self, 缓存属性名, None)
         旧签名 = getattr(self, 签名属性名, None)
-        if (
-            缓存图 is None
-            or 旧签名 != 签名
-            or 缓存图.get_size() != 屏幕.get_size()
-        ):
+        if 缓存图 is None or 旧签名 != 签名 or 缓存图.get_size() != 屏幕.get_size():
             缓存图 = pygame.Surface(屏幕.get_size(), pygame.SRCALPHA)
             try:
                 from ui.调试_谱面渲染器_渲染控件 import 调试状态
@@ -1680,7 +1856,12 @@ class 谱面渲染器:
         arrow图集 = getattr(self._皮肤包, "arrow", None)
         if arrow图集 is not None and hasattr(arrow图集, "取"):
             for 方位 in ("lb", "lt", "cc", "rt", "rb"):
-                for 前缀 in ("arrow_body_", "arrow_mask_", "arrow_repeat_", "arrow_tail_"):
+                for 前缀 in (
+                    "arrow_body_",
+                    "arrow_mask_",
+                    "arrow_repeat_",
+                    "arrow_tail_",
+                ):
                     名 = f"{前缀}{方位}.png"
                     图 = arrow图集.取(名)
                     if 图 is not None:
@@ -1791,9 +1972,7 @@ class 谱面渲染器:
             基准x = 基准y = 基准w = 基准h = 0
 
         if 基准w <= 1 or 基准h <= 1:
-            暴走区域 = self._取布局控件矩形(
-                布局, 屏幕, 上下文, "顶部HUD", "血条值"
-            )
+            暴走区域 = self._取布局控件矩形(布局, 屏幕, 上下文, "顶部HUD", "血条值")
             if not isinstance(暴走区域, pygame.Rect):
                 return
         else:
@@ -1820,9 +1999,7 @@ class 谱面渲染器:
                 缓存键=f"血条暴走条纹_{动画名}",
             )
 
-    def _取中心带不透明y边界(
-        self, 缓存键: str, 图: pygame.Surface
-    ) -> Tuple[int, int]:
+    def _取中心带不透明y边界(self, 缓存键: str, 图: pygame.Surface) -> Tuple[int, int]:
         宽 = int(max(1, 图.get_width()))
         高 = int(max(1, 图.get_height()))
         key = (str(缓存键), 宽, 高)
@@ -1997,9 +2174,7 @@ class 谱面渲染器:
         except Exception:
             pass
         try:
-            上下文["调试_血条亮度"] = float(
-                getattr(输入, "调试_血条亮度", 1.0) or 1.0
-            )
+            上下文["调试_血条亮度"] = float(getattr(输入, "调试_血条亮度", 1.0) or 1.0)
         except Exception:
             pass
         try:
@@ -2089,9 +2264,7 @@ class 谱面渲染器:
             血条值矩形 = self._取布局控件矩形(布局, 屏幕, 上下文, "顶部HUD", "血条值")
             血条值定义 = getattr(布局, "_控件索引", {}).get("血条值", {})
             内边距 = (
-                血条值定义.get("内边距", {})
-                if isinstance(血条值定义, dict)
-                else {}
+                血条值定义.get("内边距", {}) if isinstance(血条值定义, dict) else {}
             )
             if isinstance(血条值矩形, pygame.Rect):
                 try:
@@ -2132,8 +2305,10 @@ class 谱面渲染器:
     def _绘制计数动画组(self, 屏幕: pygame.Surface, 输入: 渲染输入):
         调试常显 = bool(getattr(输入, "调试_计数常显", False))
 
-        主计数活跃 = bool(调试常显) or (self._计数动画剩余秒 > 0.0) or (
-            float(getattr(self, "_计数动画停留剩余秒", 0.0) or 0.0) > 0.0
+        主计数活跃 = (
+            bool(调试常显)
+            or (self._计数动画剩余秒 > 0.0)
+            or (float(getattr(self, "_计数动画停留剩余秒", 0.0) or 0.0) > 0.0)
         )
         if not 主计数活跃:
             return
@@ -2150,7 +2325,9 @@ class 谱面渲染器:
             计数组定义 = getattr(布局, "_控件索引", {}).get("计数动画组", None)
             if isinstance(计数组定义, dict):
                 x定义 = 计数组定义.get("x", None)
-                if (not isinstance(x定义, dict)) or (str(x定义.get("键") or "") != "计数组中心x_布局"):
+                if (not isinstance(x定义, dict)) or (
+                    str(x定义.get("键") or "") != "计数组中心x_布局"
+                ):
                     计数组定义["x"] = {"键": "计数组中心x_布局"}
         except Exception:
             pass
@@ -2158,9 +2335,7 @@ class 谱面渲染器:
         # =========================
         # ✅ 关键参数（你就盯这几个调）
         # =========================
-        def _平滑分段插值(
-            p: float, 关键帧: List[Tuple[float, float]]
-        ) -> float:
+        def _平滑分段插值(p: float, 关键帧: List[Tuple[float, float]]) -> float:
             p = float(max(0.0, min(1.0, p)))
             if not 关键帧:
                 return 1.0
@@ -2253,7 +2428,9 @@ class 谱面渲染器:
         if 比例 <= 0:
             比例 = 1.0
         try:
-            轨道中心列表 = [int(v) for v in list(getattr(输入, "轨道中心列表", []) or [])[:5]]
+            轨道中心列表 = [
+                int(v) for v in list(getattr(输入, "轨道中心列表", []) or [])[:5]
+            ]
         except Exception:
             轨道中心列表 = []
         if len(轨道中心列表) >= 3:
@@ -2531,11 +2708,15 @@ class 谱面渲染器:
         判定线y列表: List[int] = []
         if isinstance(布局锚点, dict):
             try:
-                轨道中心列表 = list(布局锚点.get("轨道中心列表", 轨道中心列表) or 轨道中心列表)
+                轨道中心列表 = list(
+                    布局锚点.get("轨道中心列表", 轨道中心列表) or 轨道中心列表
+                )
             except Exception:
                 pass
             try:
-                判定线y列表 = [int(v) for v in list(布局锚点.get("判定线y列表", []) or [])[:5]]
+                判定线y列表 = [
+                    int(v) for v in list(布局锚点.get("判定线y列表", []) or [])[:5]
+                ]
             except Exception:
                 判定线y列表 = []
             try:
@@ -2706,8 +2887,10 @@ class 谱面渲染器:
                         + float(轨道) * 0.72
                     )
                     次相位 = float(主相位) * 0.52 + float(轨道) * 0.35
-                    x绘制 = float(x中心) + math.sin(主相位) * 主振幅 + math.sin(次相位) * (
-                        主振幅 * 0.22
+                    x绘制 = (
+                        float(x中心)
+                        + math.sin(主相位) * 主振幅
+                        + math.sin(次相位) * (主振幅 * 0.22)
                     )
                 elif "旋转" in 轨迹模式:
                     旋转角度 = float(
@@ -3126,9 +3309,7 @@ class 谱面渲染器:
 
         当前谱面秒 = float(输入.当前谱面秒)
         y判定 = int(float(输入.判定线y) + y偏移 + 偏移y)
-        目标宽 = int(
-            max(90, int(float(输入.箭头目标宽) * 宽度系数 * 游戏缩放 * 1.25))
-        )
+        目标宽 = int(max(90, int(float(输入.箭头目标宽) * 宽度系数 * 游戏缩放 * 1.25)))
 
         帧数 = 18
         fps = float(self._击中特效帧率)
