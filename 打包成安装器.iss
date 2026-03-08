@@ -8,7 +8,6 @@ AppId={{9E0B6D5E-6A56-4D7B-BE4C-1F6B2C8A9E11}
 AppName={#AppName}
 AppVersion={#AppVersion}
 AppPublisher={#AppPublisher}
-DefaultDirName={autopf}\{#AppName}
 DefaultGroupName={#AppName}
 AllowNoIcons=yes
 OutputDir=installer_output
@@ -17,9 +16,10 @@ SetupIconFile=icon\自解压安装器.ico
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
-PrivilegesRequired=admin
 ArchitecturesInstallIn64BitMode=x64compatible
 UninstallDisplayIcon={app}\{#AppExeName}
+DefaultDirName={userdocs}\{#AppName}
+PrivilegesRequired=lowest
 
 [Languages]
 Name: "chinesesimplified"; MessagesFile: "compiler:Languages\ChineseSimplified.isl"

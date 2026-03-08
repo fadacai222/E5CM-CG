@@ -1,0 +1,9 @@
+[tool.ruff]
+exclude = [
+    ".git",
+    ".venv",
+    "__pycache__",
+    "build",
+    "dist",
+    "开发工具归档",
+]

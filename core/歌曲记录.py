@@ -173,9 +173,49 @@ def _取歌曲目录(项目根: str) -> str:
     return os.path.join(运行根, "songs")
 
 
+def _取用户数据根目录(项目根: str) -> str:
+    try:
+        已缓存 = getattr(_取用户数据根目录, "_缓存路径", "")
+        if isinstance(已缓存, str) and 已缓存 and os.path.isdir(已缓存):
+            return 已缓存
+    except Exception:
+        pass
+
+    if not getattr(sys, "frozen", False):
+        数据根目录 = _取运行根目录(项目根)
+        setattr(_取用户数据根目录, "_缓存路径", 数据根目录)
+        return 数据根目录
+
+    应用目录名 = "E舞成名重构版"
+    候选基础目录列表 = _去重路径列表(
+        [
+            os.environ.get("LOCALAPPDATA", ""),
+            os.environ.get("APPDATA", ""),
+            os.path.join(os.path.expanduser("~"), "AppData", "Local"),
+            os.path.expanduser("~"),
+        ]
+    )
+
+    for 基础目录 in 候选基础目录列表:
+        if not 基础目录:
+            continue
+        try:
+            数据根目录 = os.path.join(基础目录, 应用目录名)
+            os.makedirs(数据根目录, exist_ok=True)
+            setattr(_取用户数据根目录, "_缓存路径", 数据根目录)
+            return 数据根目录
+        except Exception:
+            continue
+
+    回退目录 = os.path.join(os.path.expanduser("~"), 应用目录名)
+    os.makedirs(回退目录, exist_ok=True)
+    setattr(_取用户数据根目录, "_缓存路径", 回退目录)
+    return 回退目录
+
+
 def _主索引路径(项目根: str) -> str:
-    运行根 = _取运行根目录(项目根)
-    return os.path.join(运行根, "json", "歌曲记录索引.json")
+    数据根目录 = _取用户数据根目录(项目根)
+    return os.path.join(数据根目录, "json", "歌曲记录索引.json")
 
 
 def _兼容索引路径列表(项目根: str) -> List[str]:
@@ -186,6 +226,8 @@ def _兼容索引路径列表(项目根: str) -> List[str]:
     return _去重路径列表(
         [
             主路径,
+            os.path.join(运行根, "json", "歌曲记录索引.json"),
+            os.path.join(资源根, "json", "歌曲记录索引.json"),
             os.path.join(运行根, "songs", "歌曲记录索引.json"),
             os.path.join(str(项目根 or ""), "songs", "歌曲记录索引.json"),
             os.path.join(资源根, "songs", "歌曲记录索引.json"),
@@ -207,13 +249,17 @@ def _读取json文件(路径: str):
 
 
 def _写入json文件(路径: str, 数据):
-    try:
-        os.makedirs(os.path.dirname(路径), exist_ok=True)
-    except Exception:
-        pass
+    目录 = os.path.dirname(_规范路径(路径))
+    if not 目录:
+        raise ValueError(f"无效的写入路径: {路径}")
 
-    with open(路径, "w", encoding="utf-8") as 文件:
+    os.makedirs(目录, exist_ok=True)
+
+    临时路径 = 路径 + ".tmp"
+    with open(临时路径, "w", encoding="utf-8") as 文件:
         json.dump(数据, 文件, ensure_ascii=False, indent=2)
+
+    os.replace(临时路径, 路径)
 
 
 def _索引路径(项目根: str) -> str:
@@ -413,14 +459,6 @@ def 保存歌曲记录索引(项目根: str, 数据: Dict[str, dict]):
 
     主路径 = _主索引路径(项目根)
     _写入json文件(主路径, 结果)
-
-    for 兼容路径 in _兼容索引路径列表(项目根):
-        if 兼容路径 == 主路径:
-            continue
-        try:
-            _写入json文件(兼容路径, 结果)
-        except Exception:
-            continue
 
 
 def 取歌曲记录(项目根: str, sm路径: str, 歌名: str = "") -> dict:
