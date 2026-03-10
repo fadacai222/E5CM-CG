@@ -1185,10 +1185,278 @@ class 场景_谱面播放器(场景基类):
         self._事件左渲染: List[音符事件] = []
         self._事件右渲染: List[音符事件] = []
         self._谱面渲染器_右 = None
+        self._GPU谱面渲染器 = None
+        self._启用GPU谱面管线: bool = False
+        self._GPU谱面诊断文本: str = ""
+        self._GPU谱面诊断行列表: List[str] = []
+        self._最近绘制性能统计: Dict[str, float] = {}
+        self._平滑性能统计: Dict[str, float] = {}
+        self._性能统计平滑系数: float = 0.18
 
         self._按键到轨道: Dict[int, int] = {}
         self._轨道到按键列表: Dict[int, List[int]] = {}
         self._刷新按键映射()
+
+    def _应启用GPU谱面管线(self) -> bool:
+        try:
+            if "启用GPU谱面管线" in self._载荷:
+                return bool(self._载荷.get("启用GPU谱面管线"))
+        except Exception:
+            pass
+
+        文本 = str(os.environ.get("E5CM_GPU_PIPELINE", "") or "").strip().lower()
+        return 文本 in ("1", "true", "yes", "on")
+
+    def _初始化GPU谱面管线(self):
+        self._启用GPU谱面管线 = False
+        self._GPU谱面诊断文本 = ""
+        self._GPU谱面诊断行列表 = []
+        self._平滑性能统计 = {}
+
+        try:
+            if self._GPU谱面渲染器 is not None:
+                self._GPU谱面渲染器.清空()
+        except Exception:
+            pass
+
+        显示后端 = self.上下文.get("显示后端", None)
+        if not bool(getattr(显示后端, "是否GPU", False)):
+            return
+        if not self._应启用GPU谱面管线():
+            return
+
+        try:
+            from ui.谱面GPU渲染器 import 谱面GPU管线渲染器
+
+            if self._GPU谱面渲染器 is None:
+                self._GPU谱面渲染器 = 谱面GPU管线渲染器()
+            self._启用GPU谱面管线 = True
+            self._GPU谱面诊断文本 = "GPU notes pipeline active"
+        except Exception as 异常:
+            self._GPU谱面渲染器 = None
+            self._启用GPU谱面管线 = False
+            self._GPU谱面诊断文本 = ""
+            self._错误提示 = (
+                self._错误提示 + " | " if self._错误提示 else ""
+            ) + f"GPU管线初始化失败：{type(异常).__name__} {异常}"
+
+    def 绘制GPU叠加(self, 显示后端):
+        if not bool(getattr(self, "_启用GPU谱面管线", False)):
+            return
+        if self._GPU谱面渲染器 is None:
+            return
+        if bool(getattr(self, "_暂停菜单开启", False)):
+            return
+        if bool(getattr(self, "_退场黑屏开启", False)):
+            return
+        if bool(getattr(self, "_显示准备动画", False)) and (
+            not bool(getattr(self, "_准备动画已完成", True))
+        ):
+            return
+        try:
+            self._GPU谱面渲染器.绘制(显示后端)
+            self._GPU谱面诊断文本 = self._GPU谱面渲染器.取最近绘制统计()
+        except Exception:
+            try:
+                self._GPU谱面渲染器.清空()
+            except Exception:
+                pass
+
+    def _更新GPU诊断行列表(self):
+        if not bool(getattr(self, "_启用GPU谱面管线", False)):
+            self._GPU谱面诊断文本 = ""
+            self._GPU谱面诊断行列表 = []
+            return
+
+        行列表: List[str] = []
+        第一行 = str(getattr(self, "_GPU谱面诊断文本", "") or "").strip()
+        if 第一行:
+            行列表.append(第一行)
+
+        场景统计 = (
+            dict(getattr(self, "_最近绘制性能统计", {}) or {})
+            if isinstance(getattr(self, "_最近绘制性能统计", None), dict)
+            else {}
+        )
+        主循环统计 = (
+            dict(self.上下文.get("主循环最近统计", {}) or {})
+            if isinstance(self.上下文.get("主循环最近统计", None), dict)
+            else {}
+        )
+        后端统计 = (
+            dict(self.上下文.get("显示后端最近统计", {}) or {})
+            if isinstance(self.上下文.get("显示后端最近统计", None), dict)
+            else {}
+        )
+
+        合并统计: Dict[str, float] = {}
+        for 来源 in (场景统计, 主循环统计, 后端统计):
+            if not isinstance(来源, dict):
+                continue
+            for 键, 值 in 来源.items():
+                try:
+                    合并统计[str(键)] = float(值)
+                except Exception:
+                    continue
+
+        平滑系数 = float(
+            max(0.05, min(1.0, float(getattr(self, "_性能统计平滑系数", 0.18) or 0.18)))
+        )
+        平滑统计 = (
+            dict(getattr(self, "_平滑性能统计", {}) or {})
+            if isinstance(getattr(self, "_平滑性能统计", None), dict)
+            else {}
+        )
+        for 键, 当前值 in 合并统计.items():
+            if 键 not in 平滑统计:
+                平滑统计[str(键)] = float(当前值)
+                continue
+            旧值 = float(平滑统计.get(str(键), 当前值))
+            平滑统计[str(键)] = float(旧值 + (float(当前值) - 旧值) * 平滑系数)
+        self._平滑性能统计 = dict(平滑统计)
+
+        HUD片段: List[str] = []
+        if "bg_ms" in 平滑统计:
+            HUD片段.append(f"bg {float(平滑统计['bg_ms']):.1f}")
+        if "software_ms" in 平滑统计:
+            HUD片段.append(f"sw {float(平滑统计['software_ms']):.1f}")
+        if "hud_ms" in 平滑统计:
+            HUD片段.append(f"hud {float(平滑统计['hud_ms']):.1f}")
+        if "hud_bar_ms" in 平滑统计:
+            HUD片段.append(f"hb {float(平滑统计['hud_bar_ms']):.1f}")
+        if "hud_left_ms" in 平滑统计:
+            HUD片段.append(f"hl {float(平滑统计['hud_left_ms']):.1f}")
+        if "hud_stage_ms" in 平滑统计:
+            HUD片段.append(f"hs {float(平滑统计['hud_stage_ms']):.1f}")
+        if "hud_text_ms" in 平滑统计:
+            HUD片段.append(f"ht {float(平滑统计['hud_text_ms']):.1f}")
+        if HUD片段:
+            行列表.append(" ".join(HUD片段))
+
+        软件分项片段: List[str] = []
+        if "lane_static_ms" in 平滑统计:
+            软件分项片段.append(f"lane {float(平滑统计['lane_static_ms']):.1f}")
+        if "count_judge_ms" in 平滑统计:
+            软件分项片段.append(f"judge {float(平滑统计['count_judge_ms']):.1f}")
+        if "other_ui_ms" in 平滑统计:
+            软件分项片段.append(f"ui {float(平滑统计['other_ui_ms']):.1f}")
+        if "frame_ms" in 平滑统计 and float(平滑统计["frame_ms"]) > 0.001:
+            软件分项片段.append(f"fps {1000.0 / float(平滑统计['frame_ms']):.1f}")
+        if 软件分项片段:
+            行列表.append(" ".join(软件分项片段))
+
+        后端片段: List[str] = []
+        if "scene_ms" in 平滑统计:
+            后端片段.append(f"scene {float(平滑统计['scene_ms']):.1f}")
+        if "cpu_draw_ms" in 平滑统计:
+            后端片段.append(f"cpu {float(平滑统计['cpu_draw_ms']):.1f}")
+        if "gpu_prep_ms" in 平滑统计:
+            后端片段.append(f"gp {float(平滑统计['gpu_prep_ms']):.1f}")
+        if "upload_ms" in 平滑统计:
+            后端片段.append(f"up {float(平滑统计['upload_ms']):.1f}")
+        if "overlay_ms" in 平滑统计:
+            后端片段.append(f"ov {float(平滑统计['overlay_ms']):.1f}")
+        if "present_ms" in 平滑统计:
+            后端片段.append(f"pr {float(平滑统计['present_ms']):.1f}")
+        if 后端片段:
+            行列表.append(" ".join(后端片段))
+
+        self._GPU谱面诊断行列表 = 行列表[:4]
+
+    def _写入GPU上传提示(
+        self,
+        脏矩形列表: Optional[List[pygame.Rect]] = None,
+        强制全量上传: bool = False,
+    ):
+        if not isinstance(self.上下文, dict):
+            return
+        if bool(强制全量上传):
+            self.上下文["GPU上传脏矩形列表"] = None
+            self.上下文["GPU强制全量上传"] = True
+            return
+
+        结果: List[pygame.Rect] = []
+        for 项 in list(脏矩形列表 or []):
+            if isinstance(项, pygame.Rect) and 项.w > 0 and 项.h > 0:
+                结果.append(项.copy())
+        self.上下文["GPU上传脏矩形列表"] = 结果
+        self.上下文["GPU强制全量上传"] = False
+
+    def _刷新GPU上传策略(
+        self,
+        屏幕: pygame.Surface,
+        左轨道中心列表: List[int],
+        右轨道中心列表: Optional[List[int]],
+        箭头目标宽: int,
+        GPU管线已启用: bool,
+    ):
+        if (not bool(GPU管线已启用)) or (not isinstance(屏幕, pygame.Surface)):
+            self._写入GPU上传提示(None, False)
+            return
+
+        if (
+            (not bool(getattr(self, "_视频背景关闭", True)))
+            and getattr(self, "_背景视频播放器", None) is not None
+        ):
+            self._写入GPU上传提示(None, True)
+            return
+
+        if bool(getattr(self, "_暂停菜单开启", False)) or bool(
+            getattr(self, "_退场黑屏开启", False)
+        ):
+            self._写入GPU上传提示(None, True)
+            return
+
+        if bool(getattr(self, "_显示准备动画", False)) and (
+            not bool(getattr(self, "_准备动画已完成", True))
+        ):
+            self._写入GPU上传提示(None, True)
+            return
+
+        w, h = 屏幕.get_size()
+        顶部高度 = int(
+            min(
+                h,
+                max(
+                    int(getattr(self, "_血条区域", pygame.Rect(0, 0, 0, 0)).bottom) + 30,
+                    int(getattr(self, "_顶部y", 0)) + 52,
+                    176,
+                ),
+            )
+        )
+        底部高度 = 180 if bool(getattr(self, "_显示按键提示", False)) else 104
+        脏矩形列表: List[pygame.Rect] = [
+            pygame.Rect(0, 0, int(w), int(max(1, 顶部高度))),
+            pygame.Rect(0, int(max(0, h - 底部高度)), int(w), int(min(h, 底部高度))),
+        ]
+
+        全轨道中心列表 = [int(v) for v in list(左轨道中心列表 or []) if isinstance(v, int)]
+        全轨道中心列表.extend(
+            [int(v) for v in list(右轨道中心列表 or []) if isinstance(v, int)]
+        )
+        if 全轨道中心列表:
+            横向留白 = int(max(96, int(箭头目标宽) * 2))
+            左边界 = int(max(0, min(全轨道中心列表) - 横向留白))
+            右边界 = int(min(w, max(全轨道中心列表) + 横向留白))
+            上边界 = int(max(0, int(getattr(self, "_顶部y", 0)) - 48))
+            下边界 = int(
+                min(
+                    h,
+                    int(getattr(self, "_判定线y", 0))
+                    + max(170, int(max(24, 箭头目标宽) * 4)),
+                )
+            )
+            if 右边界 > 左边界 and 下边界 > 上边界:
+                脏矩形列表.append(
+                    pygame.Rect(
+                        int(左边界),
+                        int(上边界),
+                        int(右边界 - 左边界),
+                        int(下边界 - 上边界),
+                    )
+                )
+
+        self._写入GPU上传提示(脏矩形列表, False)
 
     def _同步渲染器按键反馈映射(self):
         try:
@@ -2310,6 +2578,7 @@ class 场景_谱面播放器(场景基类):
             self._谱面渲染器 = None
             self._错误提示 = f"渲染器初始化失败：{type(异常).__name__} {异常}"
 
+        self._初始化GPU谱面管线()
         self._显示手装饰 = False
 
         try:
@@ -2913,6 +3182,7 @@ class 场景_谱面播放器(场景基类):
         return None
 
     def 绘制(self):
+        绘制开始秒 = time.perf_counter()
         屏幕: pygame.Surface = self.上下文["屏幕"]
         self._刷新布局调试设置()
         屏幕宽, 屏幕高 = 屏幕.get_size()
@@ -2920,7 +3190,9 @@ class 场景_谱面播放器(场景基类):
         if (屏幕宽, 屏幕高) != tuple(self._屏幕尺寸):
             self._重算布局(强制=True)
 
+        背景开始秒 = time.perf_counter()
         self._绘制背景(屏幕)
+        背景耗时毫秒 = (time.perf_counter() - 背景开始秒) * 1000.0
 
         if self._字体 is None or self._小字体 is None:
             self._初始化字体()
@@ -2958,6 +3230,11 @@ class 场景_谱面播放器(场景基类):
                 右侧轨道中心列表 = list(右中心)
 
         if self._谱面渲染器 is None:
+            try:
+                if self._GPU谱面渲染器 is not None:
+                    self._GPU谱面渲染器.清空()
+            except Exception:
+                pass
             if self._小字体:
                 文 = self._小字体.render(
                     "谱面渲染器为空（导入失败）", True, (255, 120, 120)
@@ -2965,6 +3242,10 @@ class 场景_谱面播放器(场景基类):
                 屏幕.blit(文, (18, 18))
             self._绘制底部币值(屏幕)
             self._绘制暂停菜单(屏幕)
+            self._最近绘制性能统计 = {
+                "bg_ms": float(背景耗时毫秒),
+                "scene_ms": float((time.perf_counter() - 绘制开始秒) * 1000.0),
+            }
             return
 
         # ✅ 玩家信息（从个人资料.json）
@@ -2990,7 +3271,64 @@ class 场景_谱面播放器(场景基类):
         try:
             from ui.谱面渲染器 import 渲染输入
 
+            软件阶段开始秒 = time.perf_counter()
+            def _新建软件分项统计() -> Dict[str, float]:
+                return {
+                    "hud_ms": 0.0,
+                    "hud_bar_ms": 0.0,
+                    "hud_left_ms": 0.0,
+                    "hud_stage_ms": 0.0,
+                    "hud_text_ms": 0.0,
+                    "lane_static_ms": 0.0,
+                    "count_judge_ms": 0.0,
+                    "other_ui_ms": 0.0,
+                }
+
+            def _累加软件分项统计(目标: Dict[str, float], 来源: Optional[Dict[str, float]]):
+                if not isinstance(来源, dict):
+                    return
+                for 键 in (
+                    "hud_ms",
+                    "hud_bar_ms",
+                    "hud_left_ms",
+                    "hud_stage_ms",
+                    "hud_text_ms",
+                    "lane_static_ms",
+                    "count_judge_ms",
+                ):
+                    try:
+                        目标[键] = float(目标.get(键, 0.0)) + float(来源.get(键, 0.0) or 0.0)
+                    except Exception:
+                        continue
+                try:
+                    目标["other_ui_ms"] = float(目标.get("other_ui_ms", 0.0)) + float(
+                        来源.get("other_ui_ms", 来源.get("renderer_other_ms", 0.0)) or 0.0
+                    )
+                except Exception:
+                    pass
+
+            软件分项统计 = _新建软件分项统计()
             当前系统秒 = float(time.perf_counter())
+            GPU管线基础开关 = bool(
+                getattr(self, "_启用GPU谱面管线", False)
+                and getattr(self, "_GPU谱面渲染器", None) is not None
+            )
+            GPU管线已启用 = bool(
+                GPU管线基础开关
+                and (not bool(getattr(self, "_暂停菜单开启", False)))
+                and (not bool(getattr(self, "_退场黑屏开启", False)))
+                and (
+                    (not bool(getattr(self, "_显示准备动画", False)))
+                    or bool(getattr(self, "_准备动画已完成", True))
+                )
+            )
+            GPU接管音符绘制 = bool(GPU管线已启用)
+            GPU接管判定区绘制 = bool(GPU管线已启用)
+            GPU接管击中特效绘制 = bool(GPU管线已启用)
+            GPU接管计数动画绘制 = bool(GPU管线已启用)
+            if not bool(GPU管线基础开关):
+                self._GPU谱面诊断文本 = ""
+                self._GPU谱面诊断行列表 = []
             if bool(双踏板模式) and bool(getattr(self, "_双踏板入场待首帧校正", False)):
                 try:
                     self._刷新布局调试设置(强制=True)
@@ -3018,10 +3356,14 @@ class 场景_谱面播放器(场景基类):
                 except Exception:
                     pass
 
+            if bool(双踏板模式):
+                原事件列表_左 = getattr(self, "_事件左渲染", []) or []
+            else:
+                原事件列表_左 = getattr(self, "_事件", []) or []
             事件列表_左 = (
-                list(getattr(self, "_事件左渲染", []) or [])
-                if 双踏板模式
-                else list(getattr(self, "_事件", []) or [])
+                原事件列表_左
+                if isinstance(原事件列表_左, list)
+                else list(原事件列表_左)
             )
             输入 = 渲染输入(
                 当前谱面秒=float(self._当前谱面秒),
@@ -3055,6 +3397,10 @@ class 场景_谱面播放器(场景基类):
                 轨迹模式=str(getattr(self, "_轨迹模式", "正常") or "正常"),
                 隐藏模式=str(getattr(self, "_隐藏模式", "关闭") or "关闭"),
                 大小倍率=float(getattr(self, "_尺寸倍率", 1.0) or 1.0),
+                GPU接管音符绘制=bool(GPU接管音符绘制),
+                GPU接管判定区绘制=bool(GPU接管判定区绘制),
+                GPU接管击中特效绘制=bool(GPU接管击中特效绘制),
+                GPU接管计数动画绘制=bool(GPU接管计数动画绘制),
                 # ✅ 关键：把对象传给渲染器，让 JSON 控件负责“画”
                 圆环频谱对象=圆环频谱对象,
             )
@@ -3092,7 +3438,11 @@ class 场景_谱面播放器(场景基类):
 
             _注入调试参数(输入)
             self._谱面渲染器.渲染(屏幕, 输入, self._字体, self._小字体)
+            _累加软件分项统计(
+                软件分项统计, self._谱面渲染器.取最近软件分项统计()
+            )
 
+            输入右 = None
             if (
                 双踏板模式
                 and len(右侧轨道中心列表) == 5
@@ -3104,6 +3454,12 @@ class 场景_谱面播放器(场景基类):
                     )
                 except Exception:
                     pass
+                原事件列表_右 = getattr(self, "_事件右渲染", []) or []
+                事件列表_右 = (
+                    原事件列表_右
+                    if isinstance(原事件列表_右, list)
+                    else list(原事件列表_右)
+                )
                 输入右 = 渲染输入(
                     当前谱面秒=float(self._当前谱面秒),
                     总时长秒=float(self._谱面总时长秒),
@@ -3112,7 +3468,7 @@ class 场景_谱面播放器(场景基类):
                     底部y=int(self._底部y),
                     滚动速度px每秒=float(self._滚动速度px每秒),
                     箭头目标宽=int(箭头目标宽),
-                    事件列表=list(getattr(self, "_事件右渲染", []) or []),
+                    事件列表=事件列表_右,
                     显示_判定=str(判定),
                     显示_连击=int(连击),
                     显示_分数=int(分数),
@@ -3136,18 +3492,70 @@ class 场景_谱面播放器(场景基类):
                     轨迹模式=str(getattr(self, "_轨迹模式", "正常") or "正常"),
                     隐藏模式=str(getattr(self, "_隐藏模式", "关闭") or "关闭"),
                     大小倍率=float(getattr(self, "_尺寸倍率", 1.0) or 1.0),
+                    GPU接管音符绘制=bool(GPU接管音符绘制),
+                    GPU接管判定区绘制=bool(GPU接管判定区绘制),
+                    GPU接管击中特效绘制=bool(GPU接管击中特效绘制),
+                    GPU接管计数动画绘制=bool(GPU接管计数动画绘制),
                     圆环频谱对象=None,
                 )
                 _注入调试参数(输入右)
+                右软件分项统计 = _新建软件分项统计()
                 if bool(Note层灰度):
                     右notes层 = pygame.Surface(屏幕.get_size(), pygame.SRCALPHA)
-                    self._谱面渲染器_右._绘制notes层(
-                        右notes层, 输入右, 绘制击中特效=False
+                    _累加软件分项统计(
+                        右软件分项统计,
+                        self._谱面渲染器_右._绘制notes层(
+                            右notes层,
+                            输入右,
+                            绘制音符=not bool(GPU接管音符绘制),
+                            绘制击中特效=False,
+                        ),
                     )
                     屏幕.blit(pygame.transform.grayscale(右notes层), (0, 0))
+                    右特效开始秒 = time.perf_counter()
                     self._谱面渲染器_右._绘制击中特效(屏幕, 输入右)
+                    右软件分项统计["other_ui_ms"] += (
+                        time.perf_counter() - 右特效开始秒
+                    ) * 1000.0
                 else:
-                    self._谱面渲染器_右._绘制notes层(屏幕, 输入右)
+                    _累加软件分项统计(
+                        右软件分项统计,
+                        self._谱面渲染器_右._绘制notes层(
+                            屏幕,
+                            输入右,
+                            绘制音符=not bool(GPU接管音符绘制),
+                        ),
+                    )
+                _累加软件分项统计(软件分项统计, 右软件分项统计)
+
+            软件渲染阶段耗时毫秒 = (time.perf_counter() - 软件阶段开始秒) * 1000.0
+            已统计软件渲染毫秒 = float(
+                软件分项统计.get("hud_ms", 0.0)
+                + 软件分项统计.get("lane_static_ms", 0.0)
+                + 软件分项统计.get("count_judge_ms", 0.0)
+                + 软件分项统计.get("other_ui_ms", 0.0)
+            )
+            if 软件渲染阶段耗时毫秒 > 已统计软件渲染毫秒:
+                软件分项统计["other_ui_ms"] += (
+                    软件渲染阶段耗时毫秒 - 已统计软件渲染毫秒
+                )
+
+            GPU准备耗时毫秒 = 0.0
+            if bool(GPU管线已启用) and self._GPU谱面渲染器 is not None:
+                GPU准备开始秒 = time.perf_counter()
+                self._GPU谱面渲染器.提交帧(
+                    输入,
+                    输入右,
+                    左渲染器=self._谱面渲染器,
+                    右渲染器=getattr(self, "_谱面渲染器_右", None),
+                    屏幕=屏幕,
+                )
+                GPU准备耗时毫秒 = (time.perf_counter() - GPU准备开始秒) * 1000.0
+                self._GPU谱面诊断文本 = self._GPU谱面渲染器.取最近绘制统计()
+            elif self._GPU谱面渲染器 is not None:
+                self._GPU谱面渲染器.清空()
+
+            其它UI开始秒 = time.perf_counter()
             if bool(getattr(self, "_显示按键提示", False)):
                 self._绘制按键提示(屏幕)
             self._绘制操作反馈(屏幕)
@@ -3188,7 +3596,54 @@ class 场景_谱面播放器(场景基类):
                 except Exception:
                     pass
 
+            其它UI耗时毫秒 = (time.perf_counter() - 其它UI开始秒) * 1000.0
+            软件分项统计["other_ui_ms"] += float(其它UI耗时毫秒)
+            软件阶段耗时毫秒 = float(软件渲染阶段耗时毫秒 + 其它UI耗时毫秒)
+            self._刷新GPU上传策略(
+                屏幕,
+                左轨道中心列表=list(轨道中心列表),
+                右轨道中心列表=list(右侧轨道中心列表),
+                箭头目标宽=int(箭头目标宽),
+                GPU管线已启用=bool(GPU管线已启用),
+            )
+            self._最近绘制性能统计 = {
+                "bg_ms": float(背景耗时毫秒),
+                "scene_ms": float(
+                    (time.perf_counter() - 绘制开始秒) * 1000.0
+                ),
+                "software_ms": float(软件阶段耗时毫秒),
+                "hud_ms": float(软件分项统计.get("hud_ms", 0.0)),
+                "hud_bar_ms": float(软件分项统计.get("hud_bar_ms", 0.0)),
+                "hud_left_ms": float(软件分项统计.get("hud_left_ms", 0.0)),
+                "hud_stage_ms": float(软件分项统计.get("hud_stage_ms", 0.0)),
+                "hud_text_ms": float(软件分项统计.get("hud_text_ms", 0.0)),
+                "lane_static_ms": float(软件分项统计.get("lane_static_ms", 0.0)),
+                "count_judge_ms": float(软件分项统计.get("count_judge_ms", 0.0)),
+                "other_ui_ms": float(软件分项统计.get("other_ui_ms", 0.0)),
+                "gpu_prep_ms": float(GPU准备耗时毫秒),
+            }
+            self._更新GPU诊断行列表()
+            if self._小字体 and list(getattr(self, "_GPU谱面诊断行列表", []) or []):
+                诊断行列表 = list(getattr(self, "_GPU谱面诊断行列表", []) or [])[:4]
+                总高 = len(诊断行列表) * 18
+                起始y = max(18, int(屏幕.get_height() - 18 - 总高))
+                for 索引, 文本 in enumerate(诊断行列表):
+                    try:
+                        文 = self._小字体.render(str(文本), True, (120, 220, 255))
+                        屏幕.blit(文, (18, 起始y + 索引 * 18))
+                    except Exception:
+                        pass
+
         except Exception as 异常:
+            self._最近绘制性能统计 = {
+                "bg_ms": float(背景耗时毫秒),
+                "scene_ms": float((time.perf_counter() - 绘制开始秒) * 1000.0),
+            }
+            try:
+                if self._GPU谱面渲染器 is not None:
+                    self._GPU谱面渲染器.清空()
+            except Exception:
+                pass
             try:
                 import traceback
 
@@ -4065,13 +4520,33 @@ class 场景_谱面播放器(场景基类):
         新宽 = int(max(1, round(float(原宽) * 比例)))
         新高 = int(max(1, round(float(原高) * 比例)))
 
-        try:
-            图2 = pygame.transform.smoothscale(原图, (新宽, 新高)).convert()
-        except Exception:
+        if 原图 is getattr(self, "_背景原图", None):
             try:
-                图2 = pygame.transform.scale(原图, (新宽, 新高)).convert()
+                if (
+                    isinstance(getattr(self, "_背景缩放缓存", None), pygame.Surface)
+                    and tuple(getattr(self, "_背景缩放尺寸", (0, 0))) == (屏宽, 屏高)
+                    and self._背景缩放缓存.get_size() == (新宽, 新高)
+                ):
+                    图2 = self._背景缩放缓存
+                else:
+                    图2 = pygame.transform.smoothscale(原图, (新宽, 新高)).convert()
+                    self._背景缩放缓存 = 图2
+                    self._背景缩放尺寸 = (屏宽, 屏高)
             except Exception:
-                return
+                try:
+                    图2 = pygame.transform.scale(原图, (新宽, 新高)).convert()
+                    self._背景缩放缓存 = 图2
+                    self._背景缩放尺寸 = (屏宽, 屏高)
+                except Exception:
+                    return
+        else:
+            try:
+                图2 = pygame.transform.smoothscale(原图, (新宽, 新高)).convert()
+            except Exception:
+                try:
+                    图2 = pygame.transform.scale(原图, (新宽, 新高)).convert()
+                except Exception:
+                    return
 
         x = int((屏宽 - 新宽) // 2)
         y = int((屏高 - 新高) // 2)
@@ -4717,6 +5192,12 @@ class 场景_谱面播放器(场景基类):
             return None
 
     def 退出(self):
+        try:
+            if self._GPU谱面渲染器 is not None:
+                self._GPU谱面渲染器.清空()
+        except Exception:
+            pass
+
         try:
             if self._准备音效通道 is not None:
                 self._准备音效通道.stop()

@@ -203,9 +203,10 @@ class 圆环频谱控件:
 
         self._上一幅度 = np.clip(平滑后, 0.0, 1.0)
 
-    def 绘制(self, 屏幕: pygame.Surface, 中心: Tuple[int, int], 当前时间秒: float):
+    def 取绘制数据(
+        self, 中心: Tuple[int, int], 当前时间秒: float
+    ) -> Dict[str, object]:
         cx, cy = int(中心[0]), int(中心[1])
-
         基础相位 = 当前时间秒 * float(self.样式.旋转速度)
 
         条数 = int(max(8, int(self.样式.条数)))
@@ -231,6 +232,7 @@ class 圆环频谱控件:
         贴边半径数组 = self._贴边半径数组
         轮廓1 = []
         轮廓2 = []
+        线条列表 = []
         间隔步长 = int(max(1, min(8, int(getattr(self.样式, "条间隔步长", 1) or 1))))
         形状偏移索引 = (
             (float(self._形状旋转偏移弧度) % math.tau) / math.tau * float(条数)
@@ -270,11 +272,71 @@ class 圆环频谱控件:
                         cy + sin值 * max(4.0, 起始半径 - 2.0),
                     )
                 )
+            线条列表.append(
+                {
+                    "起点": (float(x1), float(y1)),
+                    "终点": (float(x2), float(y2)),
+                    "颜色": tuple(int(v) for v in 颜色[:3]),
+                    "宽度": int(max(1, int(self.样式.条宽))),
+                    "抗锯齿": bool(self.样式.条抗锯齿),
+                }
+            )
 
-            if self.样式.条抗锯齿:
+        数据: Dict[str, object] = {
+            "线条": 线条列表,
+            "轮廓": [],
+            "圆": [],
+        }
+        if 贴边半径数组 is not None and len(轮廓1) >= 3:
+            数据["轮廓"] = [
+                {
+                    "点列": [(float(x), float(y)) for x, y in 轮廓1],
+                    "颜色": tuple(int(v) for v in self.样式.圆环颜色1[:3]),
+                    "闭合": True,
+                    "抗锯齿": True,
+                },
+                {
+                    "点列": [(float(x), float(y)) for x, y in 轮廓2],
+                    "颜色": tuple(int(v) for v in self.样式.圆环颜色2[:3]),
+                    "闭合": True,
+                    "抗锯齿": True,
+                },
+            ]
+        else:
+            数据["圆"] = [
+                {
+                    "中心": (int(cx), int(cy)),
+                    "半径": int(self.样式.内半径),
+                    "宽度": int(max(1, int(self.样式.圆环线宽))),
+                    "颜色": tuple(int(v) for v in self.样式.圆环颜色1[:3]),
+                },
+                {
+                    "中心": (int(cx), int(cy)),
+                    "半径": int(self.样式.内半径 + 6),
+                    "宽度": 1,
+                    "颜色": tuple(int(v) for v in self.样式.圆环颜色2[:3]),
+                },
+            ]
+        return 数据
+
+    @staticmethod
+    def 按绘制数据绘制(屏幕: pygame.Surface, 数据: Dict[str, object]):
+        if 屏幕 is None or not isinstance(数据, dict):
+            return
+        for 线条 in list(数据.get("线条", []) or []):
+            if not isinstance(线条, dict):
+                continue
+            起点 = tuple(线条.get("起点", (0.0, 0.0)) or (0.0, 0.0))
+            终点 = tuple(线条.get("终点", (0.0, 0.0)) or (0.0, 0.0))
+            颜色 = tuple(int(v) for v in tuple(线条.get("颜色", (255, 255, 255)) or (255, 255, 255))[:3])
+            宽度 = int(max(1, int(线条.get("宽度", 1) or 1)))
+            抗锯齿 = bool(线条.get("抗锯齿", True))
+            x1, y1 = float(起点[0]), float(起点[1])
+            x2, y2 = float(终点[0]), float(终点[1])
+            if 抗锯齿:
                 pygame.draw.aaline(屏幕, 颜色, (x1, y1), (x2, y2), 1)
-                if self.样式.条宽 > 1:
-                    for k in range(1, self.样式.条宽):
+                if 宽度 > 1:
+                    for k in range(1, 宽度):
                         pygame.draw.aaline(
                             屏幕,
                             颜色,
@@ -283,25 +345,36 @@ class 圆环频谱控件:
                             1,
                         )
             else:
-                pygame.draw.line(屏幕, 颜色, (x1, y1), (x2, y2), self.样式.条宽)
+                pygame.draw.line(屏幕, 颜色, (x1, y1), (x2, y2), 宽度)
 
-        if 贴边半径数组 is not None and len(轮廓1) >= 3:
+        for 轮廓 in list(数据.get("轮廓", []) or []):
+            if not isinstance(轮廓, dict):
+                continue
+            点列 = list(轮廓.get("点列", []) or [])
+            if len(点列) < 2:
+                continue
+            颜色 = tuple(int(v) for v in tuple(轮廓.get("颜色", (255, 255, 255)) or (255, 255, 255))[:3])
+            闭合 = bool(轮廓.get("闭合", True))
+            抗锯齿 = bool(轮廓.get("抗锯齿", True))
             try:
-                pygame.draw.aalines(屏幕, self.样式.圆环颜色1, True, 轮廓1, 1)
-                pygame.draw.aalines(屏幕, self.样式.圆环颜色2, True, 轮廓2, 1)
+                if 抗锯齿:
+                    pygame.draw.aalines(屏幕, 颜色, 闭合, 点列, 1)
+                else:
+                    pygame.draw.lines(屏幕, 颜色, 闭合, 点列, 1)
             except Exception:
                 pass
-        else:
-            pygame.draw.circle(
-                屏幕,
-                self.样式.圆环颜色1,
-                (cx, cy),
-                self.样式.内半径,
-                self.样式.圆环线宽,
-            )
-            pygame.draw.circle(
-                屏幕, self.样式.圆环颜色2, (cx, cy), self.样式.内半径 + 6, 1
-            )
+
+        for 圆 in list(数据.get("圆", []) or []):
+            if not isinstance(圆, dict):
+                continue
+            中心 = tuple(int(v) for v in tuple(圆.get("中心", (0, 0)) or (0, 0))[:2])
+            半径 = int(max(1, int(圆.get("半径", 1) or 1)))
+            宽度 = int(max(1, int(圆.get("宽度", 1) or 1)))
+            颜色 = tuple(int(v) for v in tuple(圆.get("颜色", (255, 255, 255)) or (255, 255, 255))[:3])
+            pygame.draw.circle(屏幕, 颜色, 中心, 半径, 宽度)
+
+    def 绘制(self, 屏幕: pygame.Surface, 中心: Tuple[int, int], 当前时间秒: float):
+        self.按绘制数据绘制(屏幕, self.取绘制数据(中心, 当前时间秒))
 
     def _按浮点索引取值(self, 数组: np.ndarray, 索引: float) -> float:
         if 数组.size <= 0:
@@ -835,6 +908,39 @@ class 圆环频谱舞台装饰:
         cx = int(目标矩形.centerx)
         cy = int(目标矩形.centery)
         self.控件.绘制(屏幕, (cx, cy), 当前播放秒)
+
+    def 更新并取绘制数据(
+        self,
+        目标矩形: pygame.Rect,
+        当前播放秒: float,
+    ) -> Optional[Dict[str, object]]:
+        if not self.是否启用 or 目标矩形 is None:
+            return None
+
+        当前播放秒 = float(max(0.0, 当前播放秒))
+        self._按矩形重算样式(目标矩形)
+
+        当前系统秒 = time.perf_counter()
+        if (当前系统秒 - float(self._上次计算系统秒)) < float(self._最小计算间隔秒):
+            幅度 = self._上次幅度
+        else:
+            if self._已载入样本:
+                幅度 = self.提取器.取当前幅度(当前播放秒)
+            else:
+                幅度 = self._生成假频谱(当前播放秒)
+            self._上次计算系统秒 = float(当前系统秒)
+            self._上次计算播放秒 = float(当前播放秒)
+            self._上次幅度 = 幅度
+
+        if 幅度 is None:
+            幅度 = self._生成假频谱(当前播放秒)
+
+        self.控件.更新(幅度)
+        self.控件.设置形状旋转偏移(self._形状旋转偏移弧度)
+        return self.控件.取绘制数据(
+            (int(目标矩形.centerx), int(目标矩形.centery)),
+            当前播放秒,
+        )
 
     def _按矩形重算样式(self, 目标矩形: pygame.Rect):
         目标尺寸 = (int(max(1, 目标矩形.w)), int(max(1, 目标矩形.h)))

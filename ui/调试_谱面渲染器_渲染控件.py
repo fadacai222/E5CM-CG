@@ -267,7 +267,6 @@ def _解析动态值(值: Any, 上下文: Dict[str, Any]) -> Any:
 
     return 值
 
-
 @dataclass
 class 调试状态:
     显示全部边框: bool = False
@@ -310,6 +309,7 @@ class 谱面渲染器布局管理器:
             Tuple[str, str, int, bool, Tuple[int, int, int]], pygame.Surface
         ] = {}
         self._缩放图缓存: Dict[Tuple[str, int, int], pygame.Surface] = {}
+        self._暴走血条缓存: Dict[Tuple[Any, ...], Any] = {}
         self._皮肤帧处理缓存: Dict[Tuple[str, str], Optional[pygame.Surface]] = {}
         self._渲染清单缓存: Dict[Tuple[Any, ...], List[Dict[str, Any]]] = {}
         self._布局依赖键: set[str] = set()
@@ -468,6 +468,7 @@ class 谱面渲染器布局管理器:
     def _清空运行时缓存(self):
         self._渲染清单缓存.clear()
         self._缩放图缓存.clear()
+        self._暴走血条缓存.clear()
         self._皮肤帧处理缓存.clear()
 
     def _重建布局依赖键(self):
@@ -1653,6 +1654,12 @@ class 谱面渲染器布局管理器:
         向右 = bool(玩家序号 != 2)
 
         try:
+            拖影像素 = int(_取数(控件定义.get("拖影像素"), max(8, 羽化像素 * 2)))
+        except Exception:
+            拖影像素 = max(8, 羽化像素 * 2)
+        拖影像素 = int(max(0, min(96, 拖影像素)))
+
+        try:
             比例 = float(目标矩形.h) / float(max(1, 原图.get_height()))
             目标宽 = int(max(2, round(float(原图.get_width()) * 比例)))
             条纹图 = self._取缩放图(
@@ -1664,26 +1671,79 @@ class 谱面渲染器布局管理器:
         except Exception:
             return
 
-        临时层 = pygame.Surface((目标矩形.w, 目标矩形.h), pygame.SRCALPHA)
         条纹宽 = int(max(1, 条纹图.get_width()))
-        偏移 = int((max(0.0, float(当前秒)) * float(速度)) % float(条纹宽))
-        起x = int(-条纹宽 + 偏移) if 向右 else int(-偏移)
-        x = 起x
-        while x < 目标矩形.w:
-            临时层.blit(条纹图, (int(x), 0))
-            x += 条纹宽
-        if 羽化像素 > 0:
-            try:
-                羽化罩 = self._取边缘羽化遮罩(目标矩形.w, 目标矩形.h, 羽化像素)
-                临时层.blit(羽化罩, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
-            except Exception:
-                pass
-        if 不透明度 < 0.999:
-            try:
-                临时层.set_alpha(int(max(0, min(255, round(255.0 * 不透明度)))))
-            except Exception:
-                pass
-        屏幕.blit(临时层, 目标矩形.topleft)
+        if 条纹宽 <= 0:
+            return
+
+        缓存键 = (
+            "暴走血条带",
+            int(id(原图)),
+            int(目标矩形.w),
+            int(目标矩形.h),
+            int(玩家序号),
+            int(max(0, min(255, round(255.0 * 不透明度)))),
+            int(拖影像素),
+        )
+        已缓存 = self._暴走血条缓存.get(缓存键)
+        if isinstance(已缓存, tuple) and len(已缓存) == 2:
+            重复条带, 条带步长 = 已缓存
+        else:
+            模糊条纹宽 = int(条纹宽 + max(0, 拖影像素))
+            模糊条纹 = pygame.Surface((模糊条纹宽, int(目标矩形.h)), pygame.SRCALPHA)
+            采样列表 = (
+                ((1.00, 0.00), (0.56, 0.36), (0.26, 0.68), (0.12, 1.00))
+                if 向右
+                else ((1.00, 1.00), (0.56, 0.64), (0.26, 0.32), (0.12, 0.00))
+            )
+            for 透明倍率, 偏移比例 in 采样列表:
+                try:
+                    样本 = 条纹图.copy()
+                    样本.set_alpha(
+                        int(max(0, min(255, round(255.0 * float(透明倍率)))))
+                    )
+                except Exception:
+                    样本 = 条纹图
+                偏移x = int(round(float(拖影像素) * float(偏移比例)))
+                模糊条纹.blit(样本, (int(偏移x), 0))
+
+            if 羽化像素 > 0:
+                try:
+                    羽化罩 = self._取边缘羽化遮罩(
+                        int(模糊条纹.get_width()),
+                        int(模糊条纹.get_height()),
+                        羽化像素,
+                    )
+                    模糊条纹.blit(羽化罩, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
+                except Exception:
+                    pass
+
+            if 不透明度 < 0.999:
+                try:
+                    模糊条纹.set_alpha(
+                        int(max(0, min(255, round(255.0 * 不透明度))))
+                    )
+                except Exception:
+                    pass
+
+            条带步长 = int(max(1, 条纹宽))
+            条带宽 = int(max(目标矩形.w + 条带步长 * 2, 模糊条纹.get_width() * 3))
+            重复条带 = pygame.Surface((条带宽, int(目标矩形.h)), pygame.SRCALPHA)
+            x = 0
+            while x < 条带宽:
+                重复条带.blit(模糊条纹, (int(x), 0))
+                x += int(条带步长)
+            if len(self._暴走血条缓存) >= 128:
+                self._暴走血条缓存.clear()
+            self._暴走血条缓存[缓存键] = (重复条带, 条带步长)
+
+        偏移 = int((max(0.0, float(当前秒)) * float(速度)) % float(max(1, 条带步长)))
+        采样x = int(max(0, (条带步长 - 偏移) if 向右 else 偏移))
+        采样x = int(min(采样x, max(0, 重复条带.get_width() - 目标矩形.w)))
+        屏幕.blit(
+            重复条带,
+            目标矩形.topleft,
+            area=pygame.Rect(int(采样x), 0, int(目标矩形.w), int(目标矩形.h)),
+        )
 
     def _绘制程序化血条(
         self,
@@ -1779,6 +1839,9 @@ class 谱面渲染器布局管理器:
             位移速度 = float(_取数(上下文.get("调试_血条晃荡速度"), 位移速度))
         except Exception:
             pass
+
+        if float(当前血量值) >= 0.999:
+            x振幅 = 0.0
 
         动态偏移x = (
             int(
@@ -2670,6 +2733,12 @@ class 谱面渲染器布局管理器:
                 速度 = float(_取数(动态位移.get("速度"), 0.0))
             except Exception:
                 速度 = 0.0
+            try:
+                当前血量值 = float(_取数(上下文.get("血量最终显示", 值), 值))
+            except Exception:
+                当前血量值 = float(值)
+            if float(当前血量值) >= 0.999:
+                x振幅 = 0.0
             动态偏移x = (
                 int(
                     round(

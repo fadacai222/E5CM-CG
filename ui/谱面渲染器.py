@@ -1,8 +1,10 @@
+import bisect
 import io
 import json
 import math
 import os
 import re
+import time
 import zipfile
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
@@ -62,6 +64,11 @@ class 渲染输入:
     轨迹模式: str = "正常"
     隐藏模式: str = "关闭"
     大小倍率: float = 1.0
+    GPU接管音符绘制: bool = False
+    GPU接管判定区绘制: bool = False
+    GPU接管击中特效绘制: bool = False
+    GPU接管计数动画绘制: bool = False
+    GPU接管Stage绘制: bool = False
 
     # ✅ 新增：圆环频谱对象（场景里创建并绑定音频，布局里只负责“画”）
     圆环频谱对象: Optional[Any] = None
@@ -431,8 +438,53 @@ class 谱面渲染器:
         self._notes静态层签名: Optional[Tuple[Any, ...]] = None
         self._判定区层缓存: Optional[pygame.Surface] = None
         self._判定区层签名: Optional[Tuple[Any, ...]] = None
+        self._判定区实际锚点缓存签名: Optional[Tuple[Any, ...]] = None
+        self._判定区实际锚点缓存值: Optional[Dict[str, Any]] = None
+        self._击中特效布局缓存签名: Optional[Tuple[Any, ...]] = None
+        self._击中特效布局缓存值: Optional[Dict[int, pygame.Rect]] = None
+        self._事件渲染缓存签名: Optional[Tuple[Any, ...]] = None
+        self._事件渲染缓存值: Optional[Dict[str, Any]] = None
         self._头像灰度缓存key: Optional[Tuple[int, int, int]] = None
         self._头像灰度缓存图: Optional[pygame.Surface] = None
+        self._最近软件分项统计: Dict[str, float] = self._新建软件分项统计()
+
+    @staticmethod
+    def _新建软件分项统计() -> Dict[str, float]:
+        return {
+            "hud_ms": 0.0,
+            "hud_bar_ms": 0.0,
+            "hud_left_ms": 0.0,
+            "hud_stage_ms": 0.0,
+            "hud_text_ms": 0.0,
+            "lane_static_ms": 0.0,
+            "count_judge_ms": 0.0,
+            "renderer_other_ms": 0.0,
+        }
+
+    @staticmethod
+    def _合并软件分项统计(目标: Dict[str, float], 来源: Optional[Dict[str, float]]):
+        if not isinstance(来源, dict):
+            return
+        for 键 in (
+            "hud_ms",
+            "hud_bar_ms",
+            "hud_left_ms",
+            "hud_stage_ms",
+            "hud_text_ms",
+            "lane_static_ms",
+            "count_judge_ms",
+            "renderer_other_ms",
+        ):
+            try:
+                目标[键] = float(目标.get(键, 0.0)) + float(来源.get(键, 0.0) or 0.0)
+            except Exception:
+                continue
+
+    def 取最近软件分项统计(self) -> Dict[str, float]:
+        结果 = self._新建软件分项统计()
+        if isinstance(getattr(self, "_最近软件分项统计", None), dict):
+            self._合并软件分项统计(结果, getattr(self, "_最近软件分项统计"))
+        return 结果
 
     def _取游戏区参数(self) -> Dict[str, float]:
         def _取浮点(值: Any, 默认: float) -> float:
@@ -567,6 +619,118 @@ class 谱面渲染器:
         if len(self._已命中tap过期表毫秒) != 5:
             self._已命中tap过期表毫秒 = [{} for _ in range(5)]
 
+    @staticmethod
+    def _复制锚点字典(值: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        if not isinstance(值, dict):
+            return None
+        结果: Dict[str, Any] = {}
+        for 键, 项 in 值.items():
+            if isinstance(项, list):
+                结果[str(键)] = list(项)
+            else:
+                结果[str(键)] = 项
+        return 结果
+
+    @staticmethod
+    def _复制矩形字典(值: Optional[Dict[int, pygame.Rect]]) -> Dict[int, pygame.Rect]:
+        结果: Dict[int, pygame.Rect] = {}
+        if not isinstance(值, dict):
+            return 结果
+        for 键, 矩形 in 值.items():
+            try:
+                轨道 = int(键)
+            except Exception:
+                continue
+            if isinstance(矩形, pygame.Rect):
+                结果[轨道] = 矩形.copy()
+        return 结果
+
+    def _布局版本值(self) -> float:
+        布局 = self._确保布局管理器()
+        if 布局 is None:
+            return -1.0
+        try:
+            return float(getattr(布局, "_上次mtime", -1.0))
+        except Exception:
+            return -1.0
+
+    def _布局锚点缓存签名(
+        self, 屏幕: pygame.Surface, 输入: 渲染输入
+    ) -> Tuple[Any, ...]:
+        参数 = self._取游戏区参数()
+        return (
+            tuple(int(v) for v in 屏幕.get_size()),
+            tuple(int(v) for v in list(getattr(输入, "轨道中心列表", []) or [])[:5]),
+            int(getattr(输入, "判定线y", 0) or 0),
+            int(getattr(输入, "底部y", 0) or 0),
+            int(getattr(输入, "箭头目标宽", 0) or 0),
+            tuple(
+                round(float(v), 4)
+                for v in list(getattr(self, "_按键反馈缩放", []) or [])[:5]
+            ),
+            round(float(参数.get("y偏移", 0.0)), 4),
+            round(float(参数.get("缩放", 1.0)), 4),
+            round(float(参数.get("判定区宽度系数", 1.0)), 4),
+            round(float(参数.get("击中特效宽度系数", 1.0)), 4),
+            round(float(参数.get("击中特效偏移x", 0.0)), 4),
+            round(float(参数.get("击中特效偏移y", 0.0)), 4),
+            self._布局版本值(),
+        )
+
+    @staticmethod
+    def _事件列表缓存签名(事件列表: List[Any]) -> Tuple[Any, ...]:
+        if not isinstance(事件列表, list) or (not 事件列表):
+            return (0, 0, 0, 0)
+        中间索引 = len(事件列表) // 2
+        try:
+            return (
+                int(len(事件列表)),
+                int(id(事件列表[0])),
+                int(id(事件列表[中间索引])),
+                int(id(事件列表[-1])),
+            )
+        except Exception:
+            return (int(len(事件列表)), 0, 0, 0)
+
+    def _取事件渲染缓存(self, 事件列表: List[Any]) -> Dict[str, Any]:
+        if not isinstance(事件列表, list) or (not 事件列表):
+            return {"事件": [], "开始秒列表": [], "最大持续秒": 0.0}
+
+        签名 = self._事件列表缓存签名(事件列表)
+        if (
+            self._事件渲染缓存值 is not None
+            and self._事件渲染缓存签名 == 签名
+        ):
+            return dict(self._事件渲染缓存值)
+
+        条目列表: List[Tuple[float, float, int, str, int]] = []
+        最大持续秒 = 0.0
+        for 事件 in 事件列表:
+            try:
+                st = float(getattr(事件, "开始秒"))
+                ed = float(getattr(事件, "结束秒"))
+                轨道 = int(getattr(事件, "轨道序号"))
+                类型 = str(getattr(事件, "类型"))
+            except Exception:
+                continue
+            if not (0 <= int(轨道) < 5):
+                continue
+            条目列表.append((st, ed, 轨道, 类型, int(round(st * 1000.0))))
+            try:
+                最大持续秒 = max(最大持续秒, float(max(0.0, ed - st)))
+            except Exception:
+                pass
+
+        条目列表.sort(key=lambda 项: (float(项[0]), int(项[2]), float(项[1])))
+        缓存 = {
+            "事件": 条目列表,
+            "开始秒列表": [float(项[0]) for 项 in 条目列表],
+            "最大持续秒": float(最大持续秒),
+        }
+        self._事件渲染缓存签名 = 签名
+        self._事件渲染缓存值 = dict(缓存)
+        return dict(缓存)
+
     def 设置皮肤(self, 皮肤根路径: str):
         皮肤根路径 = str(皮肤根路径 or "").strip()
         if not 皮肤根路径:
@@ -587,6 +751,10 @@ class 谱面渲染器:
         self._notes静态层签名 = None
         self._判定区层缓存 = None
         self._判定区层签名 = None
+        self._判定区实际锚点缓存签名 = None
+        self._判定区实际锚点缓存值 = None
+        self._击中特效布局缓存签名 = None
+        self._击中特效布局缓存值 = None
 
     @staticmethod
     def _规范兜底击中特效方案(方案: str) -> str:
@@ -1258,98 +1426,141 @@ class 谱面渲染器:
         字体: pygame.font.Font,
         小字体: pygame.font.Font,
     ):
+        软件分项统计 = self._新建软件分项统计()
         try:
             self._最近渲染谱面秒 = float(输入.当前谱面秒)
         except Exception:
             self._最近渲染谱面秒 = 0.0
 
-        # 1) 顶部HUD
-        self._绘制血条(屏幕, 输入, 字体, 小字体)
+        try:
+            GPU接管音符绘制 = bool(getattr(输入, "GPU接管音符绘制", False))
 
-        # 2) notes层
-        if bool(getattr(输入, "Note层灰度", False)):
-            # 先正常绘制 notes，但不绘制击中特效
-            self._绘制notes层(屏幕, 输入, 绘制击中特效=False)
+            # 1) 顶部HUD
+            self._合并软件分项统计(
+                软件分项统计, self._绘制血条(屏幕, 输入, 字体, 小字体)
+            )
 
-            # 只对音符活动区域做“伪灰化”，不要整屏 grayscale
-            灰化矩形 = self._取濒死灰化矩形(屏幕, 输入)
-            if isinstance(灰化矩形, pygame.Rect) and 灰化矩形.w > 1 and 灰化矩形.h > 1:
-                try:
-                    需要重建缓存 = False
+            # 2) notes层
+            if bool(getattr(输入, "Note层灰度", False)):
+                self._合并软件分项统计(
+                    软件分项统计,
+                    self._绘制notes层(
+                        屏幕,
+                        输入,
+                        绘制音符=not GPU接管音符绘制,
+                        绘制击中特效=False,
+                    ),
+                )
 
-                    if (not hasattr(self, "_濒死灰化乘算层缓存")) or (
-                        not isinstance(
-                            getattr(self, "_濒死灰化乘算层缓存"), pygame.Surface
-                        )
-                    ):
-                        需要重建缓存 = True
-                    else:
-                        if self._濒死灰化乘算层缓存.get_size() != (
-                            int(灰化矩形.w),
-                            int(灰化矩形.h),
+                灰化开始秒 = time.perf_counter()
+                # 只对音符活动区域做“伪灰化”，不要整屏 grayscale
+                灰化矩形 = self._取濒死灰化矩形(屏幕, 输入)
+                if (
+                    isinstance(灰化矩形, pygame.Rect)
+                    and 灰化矩形.w > 1
+                    and 灰化矩形.h > 1
+                ):
+                    try:
+                        需要重建缓存 = False
+
+                        if (not hasattr(self, "_濒死灰化乘算层缓存")) or (
+                            not isinstance(
+                                getattr(self, "_濒死灰化乘算层缓存"), pygame.Surface
+                            )
                         ):
                             需要重建缓存 = True
+                        else:
+                            if self._濒死灰化乘算层缓存.get_size() != (
+                                int(灰化矩形.w),
+                                int(灰化矩形.h),
+                            ):
+                                需要重建缓存 = True
 
-                    if (not hasattr(self, "_濒死灰化雾层缓存")) or (
-                        not isinstance(
-                            getattr(self, "_濒死灰化雾层缓存"), pygame.Surface
-                        )
-                    ):
-                        需要重建缓存 = True
-                    else:
-                        if self._濒死灰化雾层缓存.get_size() != (
-                            int(灰化矩形.w),
-                            int(灰化矩形.h),
+                        if (not hasattr(self, "_濒死灰化雾层缓存")) or (
+                            not isinstance(
+                                getattr(self, "_濒死灰化雾层缓存"), pygame.Surface
+                            )
                         ):
                             需要重建缓存 = True
+                        else:
+                            if self._濒死灰化雾层缓存.get_size() != (
+                                int(灰化矩形.w),
+                                int(灰化矩形.h),
+                            ):
+                                需要重建缓存 = True
 
-                    if 需要重建缓存:
-                        self._濒死灰化乘算层缓存 = pygame.Surface(
-                            (int(灰化矩形.w), int(灰化矩形.h))
-                        ).convert()
-                        self._濒死灰化雾层缓存 = pygame.Surface(
-                            (int(灰化矩形.w), int(灰化矩形.h)),
-                            pygame.SRCALPHA,
+                        if 需要重建缓存:
+                            self._濒死灰化乘算层缓存 = pygame.Surface(
+                                (int(灰化矩形.w), int(灰化矩形.h))
+                            ).convert()
+                            self._濒死灰化雾层缓存 = pygame.Surface(
+                                (int(灰化矩形.w), int(灰化矩形.h)),
+                                pygame.SRCALPHA,
+                            )
+
+                        self._濒死灰化乘算层缓存.fill((150, 150, 150))
+                        屏幕.blit(
+                            self._濒死灰化乘算层缓存,
+                            灰化矩形.topleft,
+                            special_flags=pygame.BLEND_RGB_MULT,
                         )
 
-                    # 第一层：乘算压暗，制造“去饱和/发灰感”
-                    self._濒死灰化乘算层缓存.fill((150, 150, 150))
-                    屏幕.blit(
-                        self._濒死灰化乘算层缓存,
-                        灰化矩形.topleft,
-                        special_flags=pygame.BLEND_RGB_MULT,
-                    )
+                        self._濒死灰化雾层缓存.fill((78, 78, 78, 42))
+                        屏幕.blit(
+                            self._濒死灰化雾层缓存,
+                            灰化矩形.topleft,
+                        )
+                    except Exception:
+                        pass
+                软件分项统计["renderer_other_ms"] += (
+                    time.perf_counter() - 灰化开始秒
+                ) * 1000.0
 
-                    # 第二层：轻微灰雾，补一点濒死观感
-                    self._濒死灰化雾层缓存.fill((78, 78, 78, 42))
-                    屏幕.blit(
-                        self._濒死灰化雾层缓存,
-                        灰化矩形.topleft,
-                    )
-                except Exception:
-                    pass
+                特效开始秒 = time.perf_counter()
+                # 击中特效保持彩色
+                self._绘制击中特效(屏幕, 输入)
+                软件分项统计["renderer_other_ms"] += (
+                    time.perf_counter() - 特效开始秒
+                ) * 1000.0
+            else:
+                self._合并软件分项统计(
+                    软件分项统计,
+                    self._绘制notes层(
+                        屏幕,
+                        输入,
+                        绘制音符=not GPU接管音符绘制,
+                    ),
+                )
 
-            # 击中特效保持彩色
-            self._绘制击中特效(屏幕, 输入)
-        else:
-            self._绘制notes层(屏幕, 输入)
+            其它渲染开始秒 = time.perf_counter()
+            诊断 = self.取加载诊断()
+            if 诊断:
+                文 = 小字体.render(诊断, True, (255, 180, 120))
+                屏幕.blit(文, (18, int(输入.血条区域.bottom + 8)))
 
-        诊断 = self.取加载诊断()
-        if 诊断:
-            文 = 小字体.render(诊断, True, (255, 180, 120))
-            屏幕.blit(文, (18, int(输入.血条区域.bottom + 8)))
-
-        if 输入.错误提示:
-            文2 = 小字体.render(str(输入.错误提示), True, (255, 120, 120))
-            屏幕.blit(文2, (18, int(输入.血条区域.bottom + 28)))
+            if 输入.错误提示:
+                文2 = 小字体.render(str(输入.错误提示), True, (255, 120, 120))
+                屏幕.blit(文2, (18, int(输入.血条区域.bottom + 28)))
+            软件分项统计["renderer_other_ms"] += (
+                time.perf_counter() - 其它渲染开始秒
+            ) * 1000.0
+        finally:
+            self._最近软件分项统计 = dict(软件分项统计)
 
     def _绘制notes层(
-        self, 屏幕: pygame.Surface, 输入: 渲染输入, 绘制击中特效: bool = True
-    ):
+        self,
+        屏幕: pygame.Surface,
+        输入: 渲染输入,
+        绘制音符: bool = True,
+        绘制击中特效: bool = True,
+    ) -> Dict[str, float]:
+        分项统计 = self._新建软件分项统计()
         布局 = self._确保布局管理器()
         布局版本 = float(
             getattr(布局, "_上次mtime", -1.0) if 布局 is not None else -1.0
         )
+        音符静态区域 = self._取音符静态层矩形(屏幕, 输入)
+        静态层开始秒 = time.perf_counter()
         notes静态签名 = (
             tuple(int(v) for v in 屏幕.get_size()),
             tuple(int(v) for v in list(getattr(输入, "轨道中心列表", []) or [])[:5]),
@@ -1369,17 +1580,32 @@ class 谱面渲染器:
             self._notes静态层缓存.fill((0, 0, 0, 0))
             self._绘制轨道背景(self._notes静态层缓存, 输入)
             self._notes静态层签名 = notes静态签名
-        屏幕.blit(self._notes静态层缓存, (0, 0))
+        if isinstance(音符静态区域, pygame.Rect) and 音符静态区域.w > 0 and 音符静态区域.h > 0:
+            屏幕.blit(
+                self._notes静态层缓存,
+                音符静态区域.topleft,
+                area=音符静态区域,
+            )
+        else:
+            屏幕.blit(self._notes静态层缓存, (0, 0))
+        分项统计["lane_static_ms"] += (time.perf_counter() - 静态层开始秒) * 1000.0
 
-        # 2) arrows（音符还是你原来的渲染逻辑）
-        self._绘制音符(屏幕, 输入)
+        # 2) arrows（移动音符层可被 GPU 管线接管）
+        if bool(绘制音符):
+            音符开始秒 = time.perf_counter()
+            self._绘制音符(屏幕, 输入)
+            分项统计["renderer_other_ms"] += (
+                time.perf_counter() - 音符开始秒
+            ) * 1000.0
 
         # 3) 判定区（独立缓存：按反馈缩放/几何变化失效）
+        判定区开始秒 = time.perf_counter()
         判定区签名 = (
             tuple(int(v) for v in 屏幕.get_size()),
             tuple(int(v) for v in list(getattr(输入, "轨道中心列表", []) or [])[:5]),
             int(getattr(输入, "判定线y", 0) or 0),
             int(getattr(输入, "箭头目标宽", 0) or 0),
+            bool(getattr(输入, "GPU接管判定区绘制", False)),
             tuple(
                 round(float(v), 4)
                 for v in list(getattr(self, "_按键反馈缩放", []) or [])[:5]
@@ -1398,14 +1624,33 @@ class 谱面渲染器:
             self._判定区层缓存.fill((0, 0, 0, 0))
             self._绘制判定区(self._判定区层缓存, 输入)
             self._判定区层签名 = 判定区签名
-        屏幕.blit(self._判定区层缓存, (0, 0))
+        判定区区域 = self._取判定区层矩形(屏幕, 输入)
+        if isinstance(判定区区域, pygame.Rect) and 判定区区域.w > 0 and 判定区区域.h > 0:
+            屏幕.blit(
+                self._判定区层缓存,
+                判定区区域.topleft,
+                area=判定区区域,
+            )
+        else:
+            屏幕.blit(self._判定区层缓存, (0, 0))
+        分项统计["lane_static_ms"] += (time.perf_counter() - 判定区开始秒) * 1000.0
 
         # 4) 特效层（走 JSON；若 JSON 缺控件会兜底旧逻辑）
         if bool(绘制击中特效):
+            特效开始秒 = time.perf_counter()
             self._绘制击中特效(屏幕, 输入)
+            分项统计["renderer_other_ms"] += (
+                time.perf_counter() - 特效开始秒
+            ) * 1000.0
 
-        # 5) 计数动画组（仍走 JSON）
-        self._绘制计数动画组(屏幕, 输入)
+        # 5) 计数动画组（仍走 JSON；GPU 管线接管时导出到 overlay 再画）
+        if not bool(getattr(输入, "GPU接管计数动画绘制", False)):
+            计数动画开始秒 = time.perf_counter()
+            self._绘制计数动画组(屏幕, 输入)
+            分项统计["count_judge_ms"] += (
+                time.perf_counter() - 计数动画开始秒
+            ) * 1000.0
+        return 分项统计
 
     def _构建notes装饰上下文(
         self, 屏幕: pygame.Surface, 输入: 渲染输入
@@ -1536,34 +1781,53 @@ class 谱面渲染器:
     def _取判定区实际锚点(
         self, 屏幕: pygame.Surface, 输入: 渲染输入
     ) -> Optional[Dict[str, Any]]:
+        缓存签名 = self._布局锚点缓存签名(屏幕, 输入)
+        if self._判定区实际锚点缓存签名 == 缓存签名:
+            return self._复制锚点字典(self._判定区实际锚点缓存值)
+
         布局 = self._确保布局管理器()
         if 布局 is None:
+            self._判定区实际锚点缓存签名 = 缓存签名
+            self._判定区实际锚点缓存值 = None
             return None
 
         try:
             if not 布局.是否存在控件("判定区组"):
+                self._判定区实际锚点缓存签名 = 缓存签名
+                self._判定区实际锚点缓存值 = None
                 return None
         except Exception:
+            self._判定区实际锚点缓存签名 = 缓存签名
+            self._判定区实际锚点缓存值 = None
             return None
 
         上下文 = self._构建notes装饰上下文(屏幕, 输入)
         if not 上下文:
+            self._判定区实际锚点缓存签名 = 缓存签名
+            self._判定区实际锚点缓存值 = None
             return None
 
         try:
             构建清单 = getattr(布局, "_构建渲染清单", None)
             if not callable(构建清单):
+                self._判定区实际锚点缓存签名 = 缓存签名
+                self._判定区实际锚点缓存值 = None
                 return None
             项列表 = 构建清单(屏幕.get_size(), 上下文, 仅绘制根id="判定区组")
         except Exception:
+            self._判定区实际锚点缓存签名 = 缓存签名
+            self._判定区实际锚点缓存值 = None
             return None
 
         if not isinstance(项列表, list):
+            self._判定区实际锚点缓存签名 = 缓存签名
+            self._判定区实际锚点缓存值 = None
             return None
 
         轨道中心列表: List[int] = []
         判定线y列表: List[int] = []
         宽度列表: List[int] = []
+        高度列表: List[int] = []
         状态表: Dict[str, Dict[str, Any]] = {}
         for 项 in 项列表:
             if isinstance(项, dict):
@@ -1572,25 +1836,241 @@ class 谱面渲染器:
         for 轨道 in range(5):
             项 = 状态表.get(f"判定区_{轨道}")
             if not isinstance(项, dict):
+                self._判定区实际锚点缓存签名 = 缓存签名
+                self._判定区实际锚点缓存值 = None
                 return None
             矩形 = 项.get("rect")
             if not isinstance(矩形, pygame.Rect):
+                self._判定区实际锚点缓存签名 = 缓存签名
+                self._判定区实际锚点缓存值 = None
                 return None
             轨道中心列表.append(int(矩形.centerx))
             判定线y列表.append(int(矩形.centery))
             宽度列表.append(int(max(8, 矩形.w)))
+            高度列表.append(int(max(8, 矩形.h)))
 
         判定线y = int(
             判定线y列表[2]
             if len(判定线y列表) >= 3
             else sum(判定线y列表) / float(max(1, len(判定线y列表)))
         )
-        return {
+        结果 = {
             "轨道中心列表": 轨道中心列表,
             "判定线y列表": 判定线y列表,
             "判定线y": 判定线y,
             "判定区宽度列表": 宽度列表,
+            "判定区高度列表": 高度列表,
         }
+        self._判定区实际锚点缓存签名 = 缓存签名
+        self._判定区实际锚点缓存值 = self._复制锚点字典(结果)
+        return self._复制锚点字典(结果)
+
+    def _取击中特效布局矩形表(
+        self, 屏幕: pygame.Surface, 输入: 渲染输入
+    ) -> Dict[int, pygame.Rect]:
+        缓存签名 = self._布局锚点缓存签名(屏幕, 输入)
+        if self._击中特效布局缓存签名 == 缓存签名:
+            return self._复制矩形字典(self._击中特效布局缓存值)
+
+        布局 = self._确保布局管理器()
+        if 布局 is None:
+            self._击中特效布局缓存签名 = 缓存签名
+            self._击中特效布局缓存值 = {}
+            return {}
+
+        try:
+            if not 布局.是否存在控件("特效层组"):
+                self._击中特效布局缓存签名 = 缓存签名
+                self._击中特效布局缓存值 = {}
+                return {}
+        except Exception:
+            self._击中特效布局缓存签名 = 缓存签名
+            self._击中特效布局缓存值 = {}
+            return {}
+
+        上下文 = self._构建notes装饰上下文(屏幕, 输入)
+        if not isinstance(上下文, dict):
+            self._击中特效布局缓存签名 = 缓存签名
+            self._击中特效布局缓存值 = {}
+            return {}
+
+        结果: Dict[int, pygame.Rect] = {}
+        try:
+            构建清单 = getattr(布局, "_构建渲染清单", None)
+            if callable(构建清单):
+                项列表 = 构建清单(屏幕.get_size(), 上下文, 仅绘制根id="特效层组")
+                if isinstance(项列表, list):
+                    for 项 in 项列表:
+                        if not isinstance(项, dict):
+                            continue
+                        项id = str(项.get("id") or "")
+                        if not 项id.startswith("击中特效_"):
+                            continue
+                        try:
+                            轨道 = int(项id.rsplit("_", 1)[1])
+                        except Exception:
+                            continue
+                        矩形 = 项.get("rect")
+                        if isinstance(矩形, pygame.Rect):
+                            结果[int(轨道)] = 矩形.copy()
+        except Exception:
+            结果 = {}
+
+        self._击中特效布局缓存签名 = 缓存签名
+        self._击中特效布局缓存值 = self._复制矩形字典(结果)
+        return self._复制矩形字典(结果)
+
+    def 取GPU判定区数据(
+        self, 屏幕: pygame.Surface, 输入: 渲染输入
+    ) -> List[Dict[str, Any]]:
+        参数 = self._取游戏区参数()
+        游戏缩放 = float(参数.get("缩放", 1.0))
+        y偏移 = float(参数.get("y偏移", -12.0))
+        判定区宽度系数 = float(参数.get("判定区宽度系数", 1.08))
+
+        布局锚点 = self._取判定区实际锚点(屏幕, 输入)
+        try:
+            轨道中心列表 = [int(v) for v in list(getattr(输入, "轨道中心列表", []) or [])[:5]]
+        except Exception:
+            轨道中心列表 = []
+        判定线y列表 = [int(float(getattr(输入, "判定线y", 0) or 0) + y偏移)] * 5
+        基础宽度 = int(
+            max(24, int(float(getattr(输入, "箭头目标宽", 0) or 0) * 判定区宽度系数 * 游戏缩放))
+        )
+        判定区宽度列表 = [int(基础宽度)] * 5
+        判定区高度列表 = [int(max(12, round(float(基础宽度) * 0.54)))] * 5
+
+        if isinstance(布局锚点, dict):
+            try:
+                轨道中心列表 = [
+                    int(v)
+                    for v in list(布局锚点.get("轨道中心列表", 轨道中心列表) or 轨道中心列表)[:5]
+                ]
+            except Exception:
+                pass
+            try:
+                判定线y列表 = [
+                    int(v)
+                    for v in list(布局锚点.get("判定线y列表", 判定线y列表) or 判定线y列表)[:5]
+                ]
+            except Exception:
+                pass
+            try:
+                判定区宽度列表 = [
+                    int(v)
+                    for v in list(布局锚点.get("判定区宽度列表", 判定区宽度列表) or 判定区宽度列表)[:5]
+                ]
+            except Exception:
+                pass
+            try:
+                判定区高度列表 = [
+                    int(v)
+                    for v in list(布局锚点.get("判定区高度列表", 判定区高度列表) or 判定区高度列表)[:5]
+                ]
+            except Exception:
+                pass
+
+        缩放表 = list(getattr(self, "_按键反馈缩放", []) or [])
+        while len(缩放表) < 5:
+            缩放表.append(1.0)
+        while len(轨道中心列表) < 5:
+            轨道中心列表.append(0)
+        while len(判定线y列表) < 5:
+            判定线y列表.append(int(float(getattr(输入, "判定线y", 0) or 0) + y偏移))
+        while len(判定区宽度列表) < 5:
+            判定区宽度列表.append(int(基础宽度))
+        while len(判定区高度列表) < 5:
+            判定区高度列表.append(int(max(12, round(float(基础宽度) * 0.54))))
+
+        结果: List[Dict[str, Any]] = []
+        for i in range(5):
+            基宽 = int(max(12, 判定区宽度列表[i]))
+            基高 = int(max(10, 判定区高度列表[i]))
+            缩放值 = float(max(0.7, min(1.15, float(缩放表[i]))))
+            结果.append(
+                {
+                    "轨道": int(i),
+                    "x": int(轨道中心列表[i]),
+                    "y": int(判定线y列表[i]),
+                    "w": int(max(12, round(float(基宽) * 缩放值))),
+                    "h": int(max(10, round(float(基高) * 缩放值))),
+                    "基础宽": int(基宽),
+                    "基础高": int(基高),
+                    "缩放": float(缩放值),
+                }
+            )
+        return 结果
+
+    def 取GPU击中特效数据(
+        self, 屏幕: pygame.Surface, 输入: 渲染输入
+    ) -> List[Dict[str, Any]]:
+        参数 = self._取游戏区参数()
+        游戏缩放 = float(参数.get("缩放", 1.1))
+        y偏移 = float(参数.get("y偏移", 0.0))
+        偏移x = float(参数.get("击中特效偏移x", 0.0))
+        偏移y = float(参数.get("击中特效偏移y", 0.0))
+        宽度系数 = float(参数.get("击中特效宽度系数", 2.6))
+
+        当前谱面秒 = float(getattr(输入, "当前谱面秒", 0.0) or 0.0)
+        y判定 = int(float(getattr(输入, "判定线y", 0) or 0) + y偏移 + 偏移y)
+        目标宽 = int(
+            max(
+                90,
+                int(float(getattr(输入, "箭头目标宽", 0) or 0) * 宽度系数 * 游戏缩放 * 1.25),
+            )
+        )
+        布局矩形表 = self._取击中特效布局矩形表(屏幕, 输入)
+
+        结果: List[Dict[str, Any]] = []
+        for i in range(5):
+            循环到 = float(self._击中特效循环到谱面秒[i])
+            进行秒 = float(self._击中特效进行秒[i])
+            if 循环到 <= 0.0 and 进行秒 < 0.0:
+                continue
+
+            循环播放 = False
+            if 循环到 > 0.0:
+                if 当前谱面秒 > 循环到 + 0.02:
+                    continue
+                起点 = float(self._击中特效开始谱面秒[i])
+                if 起点 < -100.0:
+                    起点 = 当前谱面秒
+                周期 = float(max(0.001, 18.0 / max(1.0, float(self._击中特效帧率))))
+                progress = float(
+                    ((max(0.0, 当前谱面秒 - 起点) % 周期) / 周期)
+                )
+                强度 = 0.95
+                循环播放 = True
+            else:
+                progress = float(
+                    max(0.0, min(1.0, 进行秒 / max(0.001, float(self._击中特效最大秒))))
+                )
+                强度 = float(max(0.0, 1.0 - progress))
+
+            布局矩形 = 布局矩形表.get(int(i))
+            if isinstance(布局矩形, pygame.Rect):
+                矩形 = 布局矩形.copy()
+            else:
+                中心x = int(float(getattr(输入, "轨道中心列表", [0] * 5)[i]) + 偏移x)
+                宽 = int(max(48, 目标宽))
+                高 = int(max(28, round(float(宽) * 0.72)))
+                矩形 = pygame.Rect(
+                    int(中心x - 宽 // 2),
+                    int(y判定 - 高 // 2),
+                    int(宽),
+                    int(高),
+                )
+
+            结果.append(
+                {
+                    "轨道": int(i),
+                    "rect": 矩形,
+                    "progress": float(progress),
+                    "强度": float(强度),
+                    "循环播放": bool(循环播放),
+                }
+            )
+        return 结果
 
     def _求布局清单并集矩形(
         self, 项列表: List[Dict[str, Any]]
@@ -1608,6 +2088,32 @@ class 谱面渲染器:
         for rr in 矩形们[1:]:
             out.union_ip(rr)
         return out
+
+    @staticmethod
+    def _展开布局控件id列表(布局: Any, 控件id列表: List[str]) -> List[str]:
+        收集子树 = getattr(布局, "_收集子树id", None)
+        结果: List[str] = []
+        已见: set[str] = set()
+        for 原控件id in 控件id列表:
+            控件id = str(原控件id or "").strip()
+            if not 控件id:
+                continue
+            if callable(收集子树):
+                try:
+                    子树 = 收集子树(控件id)
+                except Exception:
+                    子树 = [控件id]
+            else:
+                子树 = [控件id]
+            if not isinstance(子树, (list, tuple, set)):
+                子树 = [控件id]
+            for 子控件id in 子树:
+                最终id = str(子控件id or "").strip()
+                if (not 最终id) or (最终id in 已见):
+                    continue
+                已见.add(最终id)
+                结果.append(最终id)
+        return 结果
 
     def 取准备动画判定区矩形(
         self, 屏幕: pygame.Surface, 输入: 渲染输入
@@ -1811,11 +2317,14 @@ class 谱面渲染器:
         布局: Any,
         上下文: Dict[str, Any],
         控件id列表: List[str],
+        区域矩形: Optional[pygame.Rect] = None,
+        渲染项列表: Optional[List[Dict[str, Any]]] = None,
     ):
         缓存图 = getattr(self, 缓存属性名, None)
         旧签名 = getattr(self, 签名属性名, None)
         if 缓存图 is None or 旧签名 != 签名 or 缓存图.get_size() != 屏幕.get_size():
             缓存图 = pygame.Surface(屏幕.get_size(), pygame.SRCALPHA)
+            缓存图.fill((0, 0, 0, 0))
             try:
                 from ui.调试_谱面渲染器_渲染控件 import 调试状态
 
@@ -1823,19 +2332,188 @@ class 谱面渲染器:
             except Exception:
                 调试 = None
             try:
-                布局.绘制(
-                    缓存图,
-                    上下文,
-                    self._皮肤包,
-                    调试=调试,
-                    仅绘制控件ids=控件id列表,
-                )
+                if isinstance(渲染项列表, list) and 渲染项列表:
+                    self._绘制布局项列表(缓存图, 布局, 上下文, 渲染项列表)
+                else:
+                    布局.绘制(
+                        缓存图,
+                        上下文,
+                        self._皮肤包,
+                        调试=调试,
+                        仅绘制控件ids=控件id列表,
+                    )
             except Exception:
                 return
             setattr(self, 缓存属性名, 缓存图)
             setattr(self, 签名属性名, 签名)
 
+        if isinstance(区域矩形, pygame.Rect):
+            可视区域 = 区域矩形.clip(屏幕.get_rect())
+            if 可视区域.w > 0 and 可视区域.h > 0:
+                屏幕.blit(缓存图, 可视区域.topleft, area=可视区域)
+            return
+
         屏幕.blit(缓存图, (0, 0))
+
+    @staticmethod
+    def _过滤布局渲染项(
+        渲染项列表: Optional[List[Dict[str, Any]]],
+        控件id列表: List[str],
+    ) -> List[Dict[str, Any]]:
+        if not isinstance(渲染项列表, list) or not 渲染项列表:
+            return []
+        允许集合 = {str(v or "") for v in list(控件id列表 or []) if str(v or "")}
+        if not 允许集合:
+            return []
+        return [
+            dict(项)
+            for 项 in 渲染项列表
+            if isinstance(项, dict) and str(项.get("id") or "") in 允许集合
+        ]
+
+    def _绘制布局项列表(
+        self,
+        屏幕: pygame.Surface,
+        布局: Any,
+        上下文: Dict[str, Any],
+        渲染项列表: List[Dict[str, Any]],
+    ):
+        if not isinstance(渲染项列表, list) or not 渲染项列表:
+            return
+        绘制单控件 = getattr(布局, "_绘制单控件", None)
+        if not callable(绘制单控件):
+            return
+        项列表 = [dict(项) for 项 in 渲染项列表 if isinstance(项, dict)]
+        项列表.sort(key=lambda 项: int(项.get("z", 0)))
+        for 项 in 项列表:
+            绘制单控件(屏幕, 项, 上下文, self._皮肤包)
+
+    def _取布局根并集矩形(
+        self,
+        布局: Any,
+        屏幕: pygame.Surface,
+        上下文: Dict[str, Any],
+        根id: str,
+    ) -> Optional[pygame.Rect]:
+        try:
+            构建清单 = getattr(布局, "_构建渲染清单", None)
+            if not callable(构建清单):
+                return None
+            项列表 = 构建清单(屏幕.get_size(), 上下文, 仅绘制根id=str(根id))
+        except Exception:
+            return None
+        if not isinstance(项列表, list):
+            return None
+        return self._求布局清单并集矩形(项列表)
+
+    def _取音符静态层矩形(
+        self, 屏幕: pygame.Surface, 输入: 渲染输入
+    ) -> pygame.Rect:
+        布局 = self._确保布局管理器()
+        if 布局 is not None:
+            上下文 = self._构建notes装饰上下文(屏幕, 输入)
+            if isinstance(上下文, dict) and 上下文:
+                矩形 = self._取布局根并集矩形(布局, 屏幕, 上下文, "轨道背景组")
+                if isinstance(矩形, pygame.Rect):
+                    return 矩形.clip(屏幕.get_rect())
+
+        try:
+            轨道中心列表 = [
+                int(v) for v in list(getattr(输入, "轨道中心列表", []) or [])[:5]
+            ]
+        except Exception:
+            轨道中心列表 = []
+        if not 轨道中心列表:
+            return 屏幕.get_rect()
+
+        try:
+            间距 = int(
+                abs(int(轨道中心列表[1]) - int(轨道中心列表[0]))
+            ) if len(轨道中心列表) >= 2 else int(max(48, getattr(输入, "箭头目标宽", 0) or 48))
+        except Exception:
+            间距 = int(max(48, getattr(输入, "箭头目标宽", 0) or 48))
+        间距 = int(max(32, 间距))
+        左 = int(min(轨道中心列表) - 间距 * 2)
+        右 = int(max(轨道中心列表) + 间距 * 2)
+        return pygame.Rect(
+            int(左),
+            0,
+            int(max(2, 右 - 左)),
+            int(max(2, 屏幕.get_height())),
+        ).clip(屏幕.get_rect())
+
+    def _取判定区层矩形(
+        self, 屏幕: pygame.Surface, 输入: 渲染输入
+    ) -> pygame.Rect:
+        布局 = self._确保布局管理器()
+        if 布局 is not None:
+            上下文 = self._构建notes装饰上下文(屏幕, 输入)
+            if isinstance(上下文, dict) and 上下文:
+                矩形 = self._取布局根并集矩形(布局, 屏幕, 上下文, "判定区组")
+                if isinstance(矩形, pygame.Rect):
+                    return 矩形.clip(屏幕.get_rect())
+
+        锚点 = self._取判定区实际锚点(屏幕, 输入)
+        try:
+            轨道中心列表 = [
+                int(v)
+                for v in list(
+                    (锚点 or {}).get("轨道中心列表", getattr(输入, "轨道中心列表", []) or [])
+                )[:5]
+            ]
+        except Exception:
+            轨道中心列表 = []
+        if not 轨道中心列表:
+            return 屏幕.get_rect()
+
+        try:
+            宽度列表 = [
+                int(v)
+                for v in list((锚点 or {}).get("判定区宽度列表", []) or [])[:5]
+            ]
+        except Exception:
+            宽度列表 = []
+        try:
+            高度列表 = [
+                int(v)
+                for v in list((锚点 or {}).get("判定区高度列表", []) or [])[:5]
+            ]
+        except Exception:
+            高度列表 = []
+        try:
+            判定线y列表 = [
+                int(v)
+                for v in list((锚点 or {}).get("判定线y列表", []) or [])[:5]
+            ]
+        except Exception:
+            判定线y列表 = []
+
+        while len(宽度列表) < len(轨道中心列表):
+            宽度列表.append(int(max(32, getattr(输入, "箭头目标宽", 0) or 32)))
+        while len(高度列表) < len(轨道中心列表):
+            高度列表.append(int(max(18, round(float(宽度列表[len(高度列表)]) * 0.6))))
+        while len(判定线y列表) < len(轨道中心列表):
+            判定线y列表.append(int(getattr(输入, "判定线y", 0) or 0))
+
+        try:
+            间距 = int(
+                abs(int(轨道中心列表[1]) - int(轨道中心列表[0]))
+            ) if len(轨道中心列表) >= 2 else int(max(48, getattr(输入, "箭头目标宽", 0) or 48))
+        except Exception:
+            间距 = int(max(48, getattr(输入, "箭头目标宽", 0) or 48))
+        间距 = int(max(24, 间距))
+        最大宽 = int(max(宽度列表) if 宽度列表 else max(32, 间距))
+        最大高 = int(max(高度列表) if 高度列表 else max(24, 最大宽 // 2))
+        左 = int(min(min(轨道中心列表) - 间距, min(轨道中心列表)) - 最大宽)
+        右 = int(max(max(轨道中心列表) + 间距, max(轨道中心列表)) + 最大宽)
+        上 = int(min(判定线y列表) - 最大高)
+        下 = int(max(判定线y列表) + 最大高)
+        return pygame.Rect(
+            int(左),
+            int(上),
+            int(max(2, 右 - 左)),
+            int(max(2, 下 - 上)),
+        ).clip(屏幕.get_rect())
 
     def 预热性能缓存(
         self,
@@ -2059,15 +2737,16 @@ class 谱面渲染器:
         输入: 渲染输入,
         字体: pygame.font.Font,
         小字体: pygame.font.Font,
-    ):
+    ) -> Dict[str, float]:
+        分项统计 = self._新建软件分项统计()
         try:
             from ui.调试_谱面渲染器_渲染控件 import 调试状态
         except Exception:
-            return
+            return 分项统计
 
         布局 = self._确保布局管理器()
         if 布局 is None:
-            return
+            return 分项统计
 
         # 倒计时
         try:
@@ -2287,10 +2966,152 @@ class 谱面渲染器:
             pass
 
         调试 = 调试状态(显示全部边框=False, 选中控件id="")
+
+        左侧底层动态控件ids = self._展开布局控件id列表(
+            布局,
+            ["血条值", "血条暴走区域"],
+        )
+        左侧半静态控件ids = self._展开布局控件id列表(
+            布局,
+            ["血条框", "头像框", "VIP装饰", "label", "段位", "昵称"],
+        )
+        左侧上层动态控件ids = self._展开布局控件id列表(
+            布局,
+            ["头像框VIP特效", "VIP粒子效果", "分数"],
+        )
+        Stage动态控件ids = self._展开布局控件id列表(
+            布局,
+            ["Stage背景", "Stage圆环频谱"],
+        )
+        Stage静态控件ids = self._展开布局控件id列表(
+            布局,
+            ["Stage字", "Stage数"],
+        )
+        右侧动态控件ids = self._展开布局控件id列表(
+            布局,
+            ["歌曲名", "歌曲星级", "倒计时"],
+        )
+
+        左侧半静态签名 = (
+            tuple(int(v) for v in 屏幕.get_size()),
+            self._布局版本值(),
+            int(getattr(输入, "玩家序号", 1) or 1),
+            str(getattr(输入, "玩家昵称", "") or ""),
+            int(getattr(输入, "当前关卡", 1) or 1),
+            int(id(上下文.get("头像图", None))),
+            int(id(上下文.get("段位图", None))),
+        )
+        Stage静态签名 = (
+            tuple(int(v) for v in 屏幕.get_size()),
+            self._布局版本值(),
+            int(getattr(输入, "当前关卡", 1) or 1),
+        )
+
+        完整HUD渲染清单: List[Dict[str, Any]] = []
+        构建清单 = getattr(布局, "_构建渲染清单", None)
+        if callable(构建清单):
+            try:
+                完整HUD渲染清单 = list(
+                    构建清单(屏幕.get_size(), 上下文, 仅绘制根id="顶部HUD") or []
+                )
+            except Exception:
+                完整HUD渲染清单 = []
+
+        左侧底层项 = self._过滤布局渲染项(完整HUD渲染清单, 左侧底层动态控件ids)
+        左侧半静态项 = self._过滤布局渲染项(完整HUD渲染清单, 左侧半静态控件ids)
+        左侧上层项 = self._过滤布局渲染项(完整HUD渲染清单, 左侧上层动态控件ids)
+        Stage动态项 = self._过滤布局渲染项(完整HUD渲染清单, Stage动态控件ids)
+        Stage静态项 = self._过滤布局渲染项(完整HUD渲染清单, Stage静态控件ids)
+        右侧动态项 = self._过滤布局渲染项(完整HUD渲染清单, 右侧动态控件ids)
+
         try:
-            布局.绘制(屏幕, 上下文, self._皮肤包, 调试=调试, 仅绘制根id="顶部HUD")
+            if 左侧底层动态控件ids:
+                开始秒 = time.perf_counter()
+                if 左侧底层项:
+                    self._绘制布局项列表(屏幕, 布局, 上下文, 左侧底层项)
+                else:
+                    布局.绘制(
+                        屏幕,
+                        上下文,
+                        self._皮肤包,
+                        调试=调试,
+                        仅绘制控件ids=左侧底层动态控件ids,
+                    )
+                分项统计["hud_bar_ms"] += (time.perf_counter() - 开始秒) * 1000.0
+            if 左侧半静态控件ids:
+                开始秒 = time.perf_counter()
+                self._绘制布局缓存层(
+                    "_顶部HUD半静态层缓存",
+                    "_顶部HUD半静态层签名",
+                    左侧半静态签名,
+                    屏幕,
+                    布局,
+                    上下文,
+                    左侧半静态控件ids,
+                    渲染项列表=左侧半静态项,
+                )
+                分项统计["hud_left_ms"] += (time.perf_counter() - 开始秒) * 1000.0
+            if 左侧上层动态控件ids:
+                开始秒 = time.perf_counter()
+                if 左侧上层项:
+                    self._绘制布局项列表(屏幕, 布局, 上下文, 左侧上层项)
+                else:
+                    布局.绘制(
+                        屏幕,
+                        上下文,
+                        self._皮肤包,
+                        调试=调试,
+                        仅绘制控件ids=左侧上层动态控件ids,
+                    )
+                分项统计["hud_left_ms"] += (time.perf_counter() - 开始秒) * 1000.0
+            if Stage动态控件ids:
+                开始秒 = time.perf_counter()
+                if Stage动态项:
+                    self._绘制布局项列表(屏幕, 布局, 上下文, Stage动态项)
+                else:
+                    布局.绘制(
+                        屏幕,
+                        上下文,
+                        self._皮肤包,
+                        调试=调试,
+                        仅绘制控件ids=Stage动态控件ids,
+                    )
+                分项统计["hud_stage_ms"] += (time.perf_counter() - 开始秒) * 1000.0
+            if Stage静态控件ids:
+                开始秒 = time.perf_counter()
+                self._绘制布局缓存层(
+                    "_顶部HUD静态层缓存",
+                    "_顶部HUD静态层签名",
+                    Stage静态签名,
+                    屏幕,
+                    布局,
+                    上下文,
+                    Stage静态控件ids,
+                    渲染项列表=Stage静态项,
+                )
+                分项统计["hud_stage_ms"] += (time.perf_counter() - 开始秒) * 1000.0
+            if 右侧动态控件ids:
+                开始秒 = time.perf_counter()
+                if 右侧动态项:
+                    self._绘制布局项列表(屏幕, 布局, 上下文, 右侧动态项)
+                else:
+                    布局.绘制(
+                        屏幕,
+                        上下文,
+                        self._皮肤包,
+                        调试=调试,
+                        仅绘制控件ids=右侧动态控件ids,
+                    )
+                分项统计["hud_text_ms"] += (time.perf_counter() - 开始秒) * 1000.0
         except Exception:
-            return
+            try:
+                开始秒 = time.perf_counter()
+                布局.绘制(
+                    屏幕, 上下文, self._皮肤包, 调试=调试, 仅绘制根id="顶部HUD"
+                )
+                分项统计["hud_ms"] += (time.perf_counter() - 开始秒) * 1000.0
+            except Exception:
+                return 分项统计
 
         if 调试显示游戏区控制:
             try:
@@ -2299,8 +3120,18 @@ class 谱面渲染器:
                 )
             except Exception:
                 pass
+        if float(分项统计.get("hud_ms", 0.0)) <= 0.001:
+            分项统计["hud_ms"] = (
+                float(分项统计.get("hud_bar_ms", 0.0))
+                + float(分项统计.get("hud_left_ms", 0.0))
+                + float(分项统计.get("hud_stage_ms", 0.0))
+                + float(分项统计.get("hud_text_ms", 0.0))
+            )
+        return 分项统计
 
-    def _绘制计数动画组(self, 屏幕: pygame.Surface, 输入: 渲染输入):
+    def _构建计数动画组上下文(
+        self, 屏幕: pygame.Surface, 输入: 渲染输入
+    ) -> Optional[Tuple[Any, Dict[str, Any]]]:
         调试常显 = bool(getattr(输入, "调试_计数常显", False))
 
         主计数活跃 = (
@@ -2309,16 +3140,11 @@ class 谱面渲染器:
             or (float(getattr(self, "_计数动画停留剩余秒", 0.0) or 0.0) > 0.0)
         )
         if not 主计数活跃:
-            return
-
-        try:
-            from ui.调试_谱面渲染器_渲染控件 import 调试状态
-        except Exception:
-            return
+            return None
 
         布局 = self._确保布局管理器()
         if 布局 is None:
-            return
+            return None
         try:
             计数组定义 = getattr(布局, "_控件索引", {}).get("计数动画组", None)
             if isinstance(计数组定义, dict):
@@ -2400,17 +3226,29 @@ class 谱面渲染器:
                     剩余 = float(self._计数动画剩余秒)
                     经过 = float(max(0.0, 总 - 剩余))
                     进度 = float(max(0.0, min(1.0, 经过 / max(0.001, 总))))
-
-                    缩放 = float(_平滑分段插值(进度, 缩放关键帧))
-                    透明 = float(_平滑分段插值(进度, 透明关键帧))
-                    缩放 = float(max(0.80, min(1.60, 缩放)))
-                    透明 = float(max(0.0, min(1.0, 透明)))
+                    轻量计数动画 = bool(
+                        (判定 != "miss")
+                        and (
+                            int(combo值) < 8
+                            or len(list(getattr(self, "_计数动画队列", []) or [])) >= 2
+                            or float(getattr(self, "_计数动画距上次触发秒", 999.0) or 999.0)
+                            <= 0.055
+                        )
+                    )
+                    if 轻量计数动画:
+                        缩放 = float(1.0 + max(0.0, (1.0 - 进度)) * 0.035)
+                        透明 = 1.0
+                    else:
+                        缩放 = float(_平滑分段插值(进度, 缩放关键帧))
+                        透明 = float(_平滑分段插值(进度, 透明关键帧))
+                        缩放 = float(max(0.80, min(1.60, 缩放)))
+                        透明 = float(max(0.0, min(1.0, 透明)))
                 else:
                     缩放 = 1.0
                     透明 = 1.0
 
             else:
-                return
+                return None
 
         判定帧 = {
             "perfect": "text_pf1_perfect.png",
@@ -2449,12 +3287,95 @@ class 谱面渲染器:
             "计数_判定帧": str(判定帧),
             "计数组中心x_布局": float(计数组中心x_布局),
         }
+        return 布局, 上下文
+
+    def _取计数动画组矩形(
+        self, 屏幕: pygame.Surface, 布局: Any, 上下文: Dict[str, Any]
+    ) -> Optional[pygame.Rect]:
+        try:
+            构建清单 = getattr(布局, "_构建渲染清单", None)
+            if not callable(构建清单):
+                return None
+            项列表 = 构建清单(屏幕.get_size(), 上下文, 仅绘制根id="计数动画组")
+        except Exception:
+            return None
+        if not isinstance(项列表, list):
+            return None
+        return self._求布局清单并集矩形(项列表)
+
+    def _取计数动画组渲染清单(
+        self, 屏幕: pygame.Surface, 布局: Any, 上下文: Dict[str, Any]
+    ) -> List[Dict[str, Any]]:
+        try:
+            构建清单 = getattr(布局, "_构建渲染清单", None)
+            if not callable(构建清单):
+                return []
+            项列表 = 构建清单(屏幕.get_size(), 上下文, 仅绘制根id="计数动画组")
+        except Exception:
+            return []
+        return list(项列表 or []) if isinstance(项列表, list) else []
+
+    def _绘制计数动画组(self, 屏幕: pygame.Surface, 输入: 渲染输入):
+        try:
+            from ui.调试_谱面渲染器_渲染控件 import 调试状态
+        except Exception:
+            return
+
+        构建结果 = self._构建计数动画组上下文(屏幕, 输入)
+        if not isinstance(构建结果, tuple) or len(构建结果) != 2:
+            return
+        布局, 上下文 = 构建结果
 
         调试 = 调试状态(显示全部边框=False, 选中控件id="")
         try:
             布局.绘制(屏幕, 上下文, self._皮肤包, 调试=调试, 仅绘制根id="计数动画组")
         except Exception:
             return
+
+    def 取GPU计数动画图层(
+        self, 屏幕: pygame.Surface, 输入: 渲染输入
+    ) -> Tuple[Optional[pygame.Surface], Optional[pygame.Rect]]:
+        构建结果 = self._构建计数动画组上下文(屏幕, 输入)
+        if not isinstance(构建结果, tuple) or len(构建结果) != 2:
+            return None, None
+        布局, 上下文 = 构建结果
+        渲染清单 = self._取计数动画组渲染清单(屏幕, 布局, 上下文)
+        if not 渲染清单:
+            return None, None
+
+        计数动画矩形 = self._求布局清单并集矩形(渲染清单)
+        if not isinstance(计数动画矩形, pygame.Rect) or 计数动画矩形.w <= 0 or 计数动画矩形.h <= 0:
+            return None, None
+
+        try:
+            绘制单控件 = getattr(布局, "_绘制单控件", None)
+            if not callable(绘制单控件):
+                return None, 计数动画矩形.copy()
+
+            图层 = pygame.Surface((int(计数动画矩形.w), int(计数动画矩形.h)), pygame.SRCALPHA)
+            图层.fill((0, 0, 0, 0))
+            局部项列表: List[Dict[str, Any]] = []
+            for 项 in 渲染清单:
+                if not isinstance(项, dict):
+                    continue
+                矩形 = 项.get("rect")
+                if not isinstance(矩形, pygame.Rect):
+                    continue
+                新项 = dict(项)
+                新项["rect"] = pygame.Rect(
+                    int(矩形.x - 计数动画矩形.x),
+                    int(矩形.y - 计数动画矩形.y),
+                    int(矩形.w),
+                    int(矩形.h),
+                )
+                局部项列表.append(新项)
+
+            局部项列表.sort(key=lambda 项: int(项.get("z", 0)))
+            for 项 in 局部项列表:
+                绘制单控件(图层, 项, 上下文, self._皮肤包)
+            return 图层, 计数动画矩形.copy()
+        except Exception:
+            return None, 计数动画矩形.copy()
 
     def _取渲染平滑谱面秒(self, 目标谱面秒: float) -> float:
         try:
@@ -2507,6 +3428,9 @@ class 谱面渲染器:
 
 
     def _绘制判定区(self, 屏幕: pygame.Surface, 输入: 渲染输入):
+        if bool(getattr(输入, "GPU接管判定区绘制", False)):
+            return
+
         图集 = self._皮肤包.key
         if 图集 is None or len(输入.轨道中心列表) < 5:
             return
@@ -3024,20 +3948,25 @@ class 谱面渲染器:
         for i in range(5):
             self._hold当前按下中[i] = False
 
-        for 事件 in 输入.事件列表 or []:
-            try:
-                st = float(getattr(事件, "开始秒"))
-                ed = float(getattr(事件, "结束秒"))
-                轨道 = int(getattr(事件, "轨道序号"))
-                类型 = str(getattr(事件, "类型"))
-            except Exception:
-                continue
+        原始事件列表 = getattr(输入, "事件列表", []) or []
+        if isinstance(原始事件列表, list):
+            事件列表引用 = 原始事件列表
+        else:
+            事件列表引用 = list(原始事件列表)
+        事件缓存 = self._取事件渲染缓存(事件列表引用)
+        缓存事件列表 = 事件缓存.get("事件", []) or []
+        开始秒列表 = 事件缓存.get("开始秒列表", []) or []
+        try:
+            最大持续秒 = float(事件缓存.get("最大持续秒", 0.0) or 0.0)
+        except Exception:
+            最大持续秒 = 0.0
+        查找起点秒 = float(当前秒 - 2.5 - max(0.0, 最大持续秒) - 0.05)
+        起始索引 = int(max(0, bisect.bisect_left(开始秒列表, 查找起点秒)))
 
-            if st < 当前秒 - 2.5 and ed < 当前秒 - 2.5:
-                continue
+        for st, ed, 轨道, 类型, st毫秒 in 缓存事件列表[起始索引:]:
             if st > 当前秒 + 提前秒:
                 break
-            if not (0 <= 轨道 < 5):
+            if st < 当前秒 - 2.5 and ed < 当前秒 - 2.5:
                 continue
 
             x中心 = int(轨道中心列表[轨道])
@@ -3045,8 +3974,6 @@ class 谱面渲染器:
 
             dy开始 = (st - 渲染秒) * float(有效速度)
             y开始 = float(当前轨判定y) + float(dy开始)
-
-            st毫秒 = int(round(st * 1000.0))
 
             if abs(ed - st) < 1e-6 or 类型 == "tap":
                 if y开始 < float(上边界) or y开始 > float(下边界):
@@ -3156,6 +4083,9 @@ class 谱面渲染器:
                 self._hold当前按下中[int(轨道)] = bool(是否按下)
                 self._hold松手系统秒[int(轨道)] = None
 
+            if bool(是否命中hold) and float(当前秒) >= float(ed):
+                continue
+
             if 全隐模式:
                 continue
 
@@ -3172,7 +4102,9 @@ class 谱面渲染器:
                 x中心,
                 y开始,
                 y结束,
-                int(箭头宽_hold),
+                当前谱面秒=float(当前秒),
+                结束谱面秒=float(ed),
+                箭头宽=int(箭头宽_hold),
                 判定线y=int(当前轨判定y),
                 是否命中hold=bool(是否命中hold),
                 上边界=int(上边界),
@@ -3236,6 +4168,8 @@ class 谱面渲染器:
         x中心: int,
         y开始: float,
         y结束: float,
+        当前谱面秒: float,
+        结束谱面秒: float,
         箭头宽: int,
         判定线y: int,
         是否命中hold: bool,
@@ -3275,142 +4209,226 @@ class 谱面渲染器:
             if 尾图 is not None
             else None
         )
+        def _取部件度量(缓存键: str, 图: Optional[pygame.Surface]) -> Optional[Dict[str, float]]:
+            if 图 is None:
+                return None
+            顶像素, 底像素 = self._取中心带不透明y边界(str(缓存键), 图)
+            图高 = int(max(1, 图.get_height()))
+            return {
+                "top_px": float(int(max(0, min(图高 - 1, 顶像素)))),
+                "bottom_px": float(int(max(0, min(图高 - 1, 底像素)))),
+                "top_rel": float(-图高 * 0.5 + int(max(0, min(图高 - 1, 顶像素)))),
+                "bottom_rel": float(-图高 * 0.5 + int(max(0, min(图高 - 1, 底像素)))),
+                "opaque_h": float(
+                    max(
+                        1,
+                        int(max(0, min(图高 - 1, 底像素)))
+                        - int(max(0, min(图高 - 1, 顶像素)))
+                        + 1,
+                    )
+                ),
+            }
 
-        # ==========
-        # ✅ 命中 hold 的头必须和判定区中心重叠，否则会出现“头还没盖到判定区就消失”的错位感
-        # ==========
+        def _绘制拼接片段(
+            图: Optional[pygame.Surface],
+            目标顶y: float,
+            源顶px: float,
+            高度px: float,
+        ):
+            if 图 is None or float(高度px) <= 0.0:
+                return
+            片段顶 = float(目标顶y)
+            片段底 = float(目标顶y) + float(高度px)
+            if 片段底 <= float(上边界) or 片段顶 >= float(下边界):
+                return
+            可见顶 = float(max(float(片段顶), float(上边界)))
+            可见底 = float(min(float(片段底), float(下边界)))
+            if 可见底 <= 可见顶:
+                return
+            源起点 = float(源顶px) + float(max(0.0, 可见顶 - 片段顶))
+            源y = int(max(0, min(int(图.get_height()) - 1, int(math.floor(源起点)))))
+            源高 = int(
+                max(
+                    1,
+                    min(
+                        int(图.get_height()) - 源y,
+                        int(math.ceil(float(可见底 - 可见顶))),
+                    ),
+                )
+            )
+            屏幕.blit(
+                图,
+                (int(x中心 - 图.get_width() // 2), int(round(可见顶))),
+                area=pygame.Rect(0, int(源y), int(图.get_width()), int(源高)),
+            )
+
+        def _绘制拉伸片段(
+            图: Optional[pygame.Surface],
+            目标顶y: float,
+            高度px: float,
+            源顶px: float,
+            源高px: float,
+            缓存键: str,
+        ):
+            if 图 is None or float(高度px) <= 0.0 or float(源高px) <= 0.0:
+                return
+
+            目标顶 = float(目标顶y)
+            目标高 = int(max(1, round(float(高度px))))
+            目标矩形 = pygame.Rect(
+                int(x中心 - 图.get_width() // 2),
+                int(round(目标顶)),
+                int(图.get_width()),
+                int(目标高),
+            )
+            可见矩形 = 目标矩形.clip(
+                pygame.Rect(
+                    0,
+                    int(上边界),
+                    int(屏幕.get_width()),
+                    int(max(0, 下边界 - 上边界)),
+                )
+            )
+            if 可见矩形.w <= 0 or 可见矩形.h <= 0:
+                return
+
+            源顶 = int(max(0, min(int(图.get_height()) - 1, round(float(源顶px)))))
+            源高 = int(
+                max(
+                    1,
+                    min(
+                        int(图.get_height()) - int(源顶),
+                        round(float(源高px)),
+                    ),
+                )
+            )
+            if 源高 <= 0:
+                return
+
+            条图缓存键 = (
+                f"hold_stretch_strip:{缓存键}:{int(图.get_width())}:{int(图.get_height())}:"
+                f"{int(源顶)}:{int(源高)}"
+            )
+            条图 = self._缩放缓存.get(条图缓存键)
+            if 条图 is None or not isinstance(条图, pygame.Surface):
+                条图 = 图.subsurface(
+                    pygame.Rect(0, int(源顶), int(图.get_width()), int(源高))
+                ).copy()
+                self._缩放缓存[条图缓存键] = 条图
+
+            拉伸图 = pygame.transform.scale(
+                条图,
+                (int(图.get_width()), int(max(1, 目标矩形.h))),
+            )
+            局部区域 = pygame.Rect(
+                int(可见矩形.x - 目标矩形.x),
+                int(可见矩形.y - 目标矩形.y),
+                int(可见矩形.w),
+                int(可见矩形.h),
+            )
+            屏幕.blit(拉伸图, 可见矩形.topleft, area=局部区域)
+
+        头度量 = _取部件度量(f"hold:{头名}:{箭头宽}", 头2)
+        脖子度量 = _取部件度量(f"hold:{罩名}:{箭头宽}", 罩2)
+        身体度量 = _取部件度量(f"hold:{身名}:{箭头宽}", 身2)
+        尾巴度量 = _取部件度量(f"hold:{尾名}:{箭头宽}", 尾2)
+
+        头中心y = float(y开始)
+        尾巴中心y = float(y结束)
         目标判定y = float(int(判定线y))
 
-        # ==========
-        # ✅ 命中 hold：头钉在“目标判定y”，尾巴穿过“目标判定y”就结束
-        # ==========
-        原y头 = float(y开始)
-        原y尾 = float(y结束)
-        mask下边缘y: Optional[float] = None
-        tail可见顶边y: Optional[float] = None
-
         if bool(是否命中hold):
-            # 头如果已经到判定线上方（更小的y），就钉住到目标y
-            if 原y头 < 目标判定y:
-                y开始 = float(目标判定y)
-            if 罩2 is not None:
-                _罩顶, 罩底 = self._取中心带不透明y边界(f"geom:{罩名}", 罩2)
-                mask下边缘y = float(y开始 - 罩2.get_height() * 0.5 + 罩底)
-            if 尾2 is not None:
-                尾顶, _尾底 = self._取中心带不透明y边界(f"geom:{尾名}", 尾2)
-                tail可见顶边y = float(y结束 - 尾2.get_height() * 0.5 + 尾顶)
-
-            # 把消失阈值从“tail 走完”提前到“tail 开始进入 mask 下边缘”。
-            if (
-                mask下边缘y is not None
-                and tail可见顶边y is not None
-                and float(tail可见顶边y) <= float(mask下边缘y)
-            ):
+            if float(当前谱面秒) >= float(结束谱面秒):
                 return
-            if mask下边缘y is None and 原y尾 < float(目标判定y):
-                return
+            if 头中心y < 目标判定y:
+                头中心y = float(目标判定y)
 
-        y1 = float(min(y开始, y结束))
-        y2 = float(max(y开始, y结束))
+        箭头脖子重叠偏移量 = 0.0
+        if 头度量 is not None and 脖子度量 is not None:
+            箭头脖子重叠偏移量 = float(
+                max(0.0, float(头度量["bottom_rel"]) - float(脖子度量["top_rel"]))
+            )
+        拼接偏移量 = 0.0
 
-        # ==========
-        # ✅ 屏幕裁剪（加缓冲减少边缘闪）
-        # ==========
-        缓冲 = 6
-        绘制y1 = float(max(float(上边界 - 缓冲), y1))
-        绘制y2 = float(min(float(下边界 + 缓冲), y2))
-        if bool(是否命中hold) and (mask下边缘y is not None):
-            绘制y1 = float(max(float(绘制y1), float(mask下边缘y)))
+        脖子中心y = float(头中心y)
+        if 头度量 is not None and 脖子度量 is not None:
+            头下边缘y = float(头中心y) + float(头度量["bottom_rel"])
+            脖子中心y = float(
+                头下边缘y
+                - float(脖子度量["top_rel"])
+                - float(箭头脖子重叠偏移量)
+            )
 
-        if 绘制y2 <= 绘制y1:
-            # 只有单点可画：先画尾，再画头
-            if 尾2 is not None:
-                if float(上边界) <= y2 <= float(下边界):
-                    屏幕.blit(
-                        尾2,
-                        (
-                            int(x中心 - 尾2.get_width() // 2),
-                            int(y2 - 尾2.get_height() // 2),
-                        ),
-                    )
+        if 脖子度量 is not None:
+            脖子下拼接y = float(脖子中心y) + float(脖子度量["bottom_rel"])
+        elif 头度量 is not None:
+            脖子下拼接y = float(头中心y) + float(头度量["bottom_rel"])
+        else:
+            脖子下拼接y = float(头中心y)
 
-            if 是否绘制头 and 罩2 is not None:
-                y罩 = float(y开始)
-                if float(上边界) <= y罩 <= float(下边界):
-                    屏幕.blit(
-                        罩2,
-                        (
-                            int(x中心 - 罩2.get_width() // 2),
-                            int(y罩 - 罩2.get_height() // 2),
-                        ),
-                    )
+        if 尾巴度量 is not None:
+            尾巴上拼接y = float(尾巴中心y) + float(尾巴度量["top_rel"])
+        else:
+            尾巴上拼接y = float(尾巴中心y)
 
-            if 是否绘制头 and 头2 is not None:
-                y头 = float(y开始)
-                if float(上边界) <= y头 <= float(下边界):
-                    屏幕.blit(
-                        头2,
-                        (
-                            int(x中心 - 头2.get_width() // 2),
-                            int(y头 - 头2.get_height() // 2),
-                        ),
-                    )
-            return
+        最小尾巴上拼接y = float(脖子下拼接y) + float(拼接偏移量)
+        if (not bool(是否命中hold)) and 尾巴上拼接y < 最小尾巴上拼接y:
+            if 尾巴度量 is not None:
+                尾巴中心y = float(最小尾巴上拼接y) - float(尾巴度量["top_rel"])
+                尾巴上拼接y = float(最小尾巴上拼接y)
+            else:
+                尾巴上拼接y = float(最小尾巴上拼接y)
+                尾巴中心y = float(尾巴上拼接y)
 
-        # ==========
-        # body 平铺
-        # ==========
-        if 身2 is not None:
-            单高 = int(max(6, 身2.get_height()))
-            cy = int(math.floor(绘制y1))
-            终点 = int(math.ceil(绘制y2))
-            while cy < 终点:
-                屏幕.blit(身2, (int(x中心 - 身2.get_width() // 2), int(cy)))
-                cy += 单高
+        身体起始拼接y = float(脖子下拼接y) + float(拼接偏移量)
+        身体结束拼接y = float(尾巴上拼接y) - float(拼接偏移量)
 
-        # ==========
-        # tail
-        # ==========
-        if 尾2 is not None:
-            if float(上边界) <= y2 <= float(下边界):
-                屏幕.blit(
-                    尾2,
-                    (
-                        int(x中心 - 尾2.get_width() // 2),
-                        int(y2 - 尾2.get_height() // 2),
-                    ),
-                )
+        if 身2 is not None and 身体度量 is not None and 身体结束拼接y > 身体起始拼接y:
+            身体顶部像素 = float(身体度量["top_px"])
+            身体底部像素 = float(身体度量["bottom_px"])
+            身体中心像素 = float(
+                round((float(身体顶部像素) + float(身体底部像素)) * 0.5)
+            )
+            _绘制拉伸片段(
+                身2,
+                目标顶y=float(身体起始拼接y),
+                高度px=float(身体结束拼接y - 身体起始拼接y),
+                源顶px=float(身体中心像素),
+                源高px=1.0,
+                缓存键=f"{身名}:{箭头宽}",
+            )
 
-        # ==========
-        # arrow_mask：按每个方向自己的遮罩形状吃掉 hold-body 顶端
-        # 原版不是统一水平裁切，5 个方向的视觉消失位置各不相同
-        # ==========
-        if 是否绘制头 and 罩2 is not None:
-            y罩 = float(y开始)
-            if float(上边界) <= y罩 <= float(下边界):
-                屏幕.blit(
-                    罩2,
-                    (
-                        int(x中心 - 罩2.get_width() // 2),
-                        int(y罩 - 罩2.get_height() // 2),
-                    ),
-                )
+        if 尾2 is not None and float(上边界) <= float(尾巴中心y) <= float(下边界):
+            屏幕.blit(
+                尾2,
+                (
+                    int(x中心 - 尾2.get_width() // 2),
+                    int(尾巴中心y - 尾2.get_height() // 2),
+                ),
+            )
 
-        # ==========
-        # head（命中 hold 时已被钉到目标y，不会飞天）
-        # ==========
-        if 是否绘制头 and 头2 is not None:
-            y头 = float(y开始)
-            if float(上边界) <= y头 <= float(下边界):
-                屏幕.blit(
-                    头2,
-                    (
-                        int(x中心 - 头2.get_width() // 2),
-                        int(y头 - 头2.get_height() // 2),
-                    ),
-                )
+        if 是否绘制头 and 罩2 is not None and float(上边界) <= float(脖子中心y) <= float(下边界):
+            屏幕.blit(
+                罩2,
+                (
+                    int(x中心 - 罩2.get_width() // 2),
+                    int(脖子中心y - 罩2.get_height() // 2),
+                ),
+            )
+
+        if 是否绘制头 and 头2 is not None and float(上边界) <= float(头中心y) <= float(下边界):
+            屏幕.blit(
+                头2,
+                (
+                    int(x中心 - 头2.get_width() // 2),
+                    int(头中心y - 头2.get_height() // 2),
+                ),
+            )
 
     def _绘制击中特效(self, 屏幕: pygame.Surface, 输入: 渲染输入):
+        if bool(getattr(输入, "GPU接管击中特效绘制", False)):
+            return
+
         图集 = self._皮肤包.key_effect
         if 图集 is None:
             return
@@ -3448,12 +4466,10 @@ class 谱面渲染器:
                     self._击中特效进行秒[i] = -1.0
                     self._击中特效开始谱面秒[i] = -999.0
                     continue
-
-                起点 = float(self._击中特效开始谱面秒[i])
-                if 起点 < -100.0:
-                    起点 = 当前谱面秒
-                进行秒 = max(0.0, 当前谱面秒 - 起点)
-                帧号 = int((进行秒 * (fps * 2.0)) % float(帧数))
+                进行秒 = float(self._击中特效进行秒[i])
+                if 进行秒 < 0.0:
+                    进行秒 = 0.0
+                帧号 = int(max(0, min(帧数 - 1, int(进行秒 * fps))))
             else:
                 进行秒 = float(self._击中特效进行秒[i])
                 if 进行秒 < 0.0:
@@ -3464,36 +4480,7 @@ class 谱面渲染器:
             特效帧名列表[i] = f"{序列前缀}_{帧号:04d}.png"
             特效翻转列表[i] = bool(需要水平翻转)
 
-        特效布局矩形表: Dict[int, pygame.Rect] = {}
-        try:
-            布局 = self._确保布局管理器()
-            if 布局 is not None and bool(布局.是否存在控件("特效层组")):
-                上下文 = self._构建notes装饰上下文(屏幕, 输入)
-                if isinstance(上下文, dict):
-                    for i in range(5):
-                        上下文[f"特效帧_{i}"] = str(特效帧名列表[i] or "")
-                        上下文[f"特效翻转_{i}"] = bool(特效翻转列表[i])
-                    构建清单 = getattr(布局, "_构建渲染清单", None)
-                    if callable(构建清单):
-                        项列表 = 构建清单(
-                            屏幕.get_size(), 上下文, 仅绘制根id="特效层组"
-                        )
-                        if isinstance(项列表, list):
-                            for 项 in 项列表:
-                                if not isinstance(项, dict):
-                                    continue
-                                项id = str(项.get("id") or "")
-                                if not 项id.startswith("击中特效_"):
-                                    continue
-                                try:
-                                    轨道 = int(项id.rsplit("_", 1)[1])
-                                except Exception:
-                                    continue
-                                矩形 = 项.get("rect")
-                                if isinstance(矩形, pygame.Rect):
-                                    特效布局矩形表[int(轨道)] = 矩形.copy()
-        except Exception:
-            特效布局矩形表 = {}
+        特效布局矩形表 = self._取击中特效布局矩形表(屏幕, 输入)
 
         for i in range(5):
             文件名 = str(特效帧名列表[i] or "")

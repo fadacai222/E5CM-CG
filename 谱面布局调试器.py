@@ -55,7 +55,7 @@ def _安全读json(路径: str) -> dict:
         return {}
 
 
-def _加载皮肤包(项目根: str, 箭头编号: str = "02") -> Any:
+def _加载皮肤包(项目根: str, 箭头编号: str = "01") -> Any:
     class _空皮肤:
         pass
 
@@ -110,7 +110,7 @@ def _收集可用箭头皮肤编号(项目根: str) -> List[str]:
 
 
 def _尝试加载头像与昵称(项目根: str) -> Tuple[Optional[pygame.Surface], str]:
-    资料目录 = os.path.join(项目根, "UI-img", "个人中心-个人资料")
+    资料目录 = os.path.join(项目根, "json")
     资料路径 = os.path.join(资料目录, "个人资料.json")
     资料 = _安全读json(资料路径)
     昵称 = str((资料 or {}).get("昵称", "") or "").strip() or "布局调试"

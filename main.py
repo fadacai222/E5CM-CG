@@ -12,6 +12,7 @@ except Exception:
 
 from core.常量与路径 import 默认资源路径, 取运行根目录
 from core.对局状态 import 取每局所需信用
+from core.渲染后端 import 创建显示后端, 取桌面尺寸
 from core.踏板控制 import 解析踏板动作
 from core.工具 import 获取字体
 from core.音频 import 音乐管理
@@ -28,25 +29,6 @@ from scenes.场景_中转提示 import 场景_中转提示
 from scenes.场景_谱面播放器 import 场景_谱面播放器
 from ui.点击特效 import 序列帧特效资源, 全局点击特效管理器
 from ui.场景过渡 import 公共黑屏过渡,公共丝滑入场
-
-
-def _创建显示窗口(
-    尺寸: tuple[int, int],
-    flags: int,
-) -> pygame.Surface:
-    请求flags = int(flags | pygame.DOUBLEBUF)
-    try:
-        return pygame.display.set_mode(尺寸, 请求flags, vsync=1)
-    except TypeError:
-        try:
-            return pygame.display.set_mode(尺寸, 请求flags)
-        except Exception:
-            return pygame.display.set_mode(尺寸, flags)
-    except Exception:
-        try:
-            return pygame.display.set_mode(尺寸, 请求flags)
-        except Exception:
-            return pygame.display.set_mode(尺寸, flags)
 
 
 def _切换英文输入法():
@@ -172,6 +154,8 @@ def _绘制opencv缺失提示(
 
 
 def 主函数():
+    显示后端 = None
+
     def _安全进入场景(场景对象, 载荷):
         try:
             进入方法 = getattr(场景对象, "进入", None)
@@ -216,6 +200,19 @@ def 主函数():
     def _取运行根目录() -> str:
         return 取运行根目录()
 
+    def _同步屏幕引用():
+        nonlocal 屏幕
+        if 显示后端 is None:
+            return
+        try:
+            屏幕 = 显示后端.取绘制屏幕()
+        except Exception:
+            return
+        try:
+            上下文["屏幕"] = 屏幕
+        except Exception:
+            pass
+
     def _切换全屏():
         nonlocal 是否全屏, 上次窗口尺寸, 屏幕
 
@@ -226,19 +223,19 @@ def 主函数():
 
         if not 是否全屏:
             上次窗口尺寸 = (int(当前w), int(当前h))
-            信息2 = pygame.display.Info()
-            目标w = int(max(1, int(信息2.current_w or 当前w or 1920)))
-            目标h = int(max(1, int(信息2.current_h or 当前h or 1080)))
-            屏幕 = _创建显示窗口((目标w, 目标h), pygame.FULLSCREEN)
+            if 显示后端 is not None:
+                目标w, 目标h = 显示后端.取桌面尺寸()
+                显示后端.调整窗口模式((目标w, 目标h), pygame.FULLSCREEN)
             是否全屏 = True
         else:
             恢复w, 恢复h = 上次窗口尺寸
             恢复w = int(max(960, int(恢复w)))
             恢复h = int(max(540, int(恢复h)))
-            屏幕 = _创建显示窗口((恢复w, 恢复h), pygame.RESIZABLE)
+            if 显示后端 is not None:
+                显示后端.调整窗口模式((恢复w, 恢复h), pygame.RESIZABLE)
             是否全屏 = False
 
-        上下文["屏幕"] = 屏幕
+        _同步屏幕引用()
 
     # def _播放开场动画_cv2(视频路径: str):
     #     if (not 视频路径) or (not os.path.isfile(视频路径)):
@@ -398,18 +395,38 @@ def 主函数():
             位置y = (屏幕高 - 图片高) // 2
             屏幕面.blit(图片副本, (位置x, 位置y))
 
-        def _处理开场事件():
-            for 事件 in pygame.event.get():
-                if 事件.type == pygame.QUIT:
-                    pygame.quit()
-                    sys.exit(0)
+        def _提交开场帧():
+            if 显示后端 is not None:
+                显示后端.呈现()
+                return
+            pygame.display.flip()
 
-                if 事件.type == pygame.KEYDOWN:
-                    if 事件.key == pygame.K_ESCAPE:
+        def _处理开场事件():
+            for 原始事件 in pygame.event.get():
+                事件列表 = (
+                    显示后端.处理事件(原始事件)
+                    if 显示后端 is not None
+                    else [原始事件]
+                )
+                for 事件 in 事件列表:
+                    if 事件.type == pygame.QUIT:
                         pygame.quit()
                         sys.exit(0)
-                    if 事件.key == pygame.K_F11:
-                        _切换全屏()
+
+                    if 事件.type == pygame.KEYDOWN:
+                        if 事件.key == pygame.K_ESCAPE:
+                            pygame.quit()
+                            sys.exit(0)
+                        if 事件.key == pygame.K_F11:
+                            _切换全屏()
+                            continue
+
+                    if 事件.type == pygame.VIDEORESIZE and (not 是否全屏):
+                        新w = int(max(960, int(getattr(事件, "w", 0) or 0)))
+                        新h = int(max(540, int(getattr(事件, "h", 0) or 0)))
+                        if 显示后端 is not None:
+                            显示后端.调整窗口模式((新w, 新h), pygame.RESIZABLE)
+                            _同步屏幕引用()
 
         渐显秒 = 2.0
         停留秒 = 1.0
@@ -460,7 +477,7 @@ def 主函数():
                 上下文["屏幕"].fill((0, 0, 0))
                 if 当前图片面 is not None:
                     _绘制居中图片(上下文["屏幕"], 当前图片面, 透明度)
-                pygame.display.flip()
+                _提交开场帧()
                 播放时钟.tick(60)
             return
 
@@ -483,7 +500,7 @@ def 主函数():
             上下文["屏幕"].fill((0, 0, 0))
             if 当前图片面 is not None:
                 _绘制居中图片(上下文["屏幕"], 当前图片面, 当前透明度)
-            pygame.display.flip()
+            _提交开场帧()
             播放时钟.tick(60)
 
         for 索引 in range(len(图片路径列表) - 1):
@@ -509,7 +526,7 @@ def 主函数():
                     _绘制居中图片(上下文["屏幕"], 当前图片面, 当前透明度)
                 if 下一张图片面 is not None:
                     _绘制居中图片(上下文["屏幕"], 下一张图片面, 下一张透明度)
-                pygame.display.flip()
+                _提交开场帧()
                 播放时钟.tick(60)
 
             if 索引 + 1 < len(图片路径列表) - 1:
@@ -524,7 +541,7 @@ def 主函数():
                     上下文["屏幕"].fill((0, 0, 0))
                     if 下一张图片面 is not None:
                         _绘制居中图片(上下文["屏幕"], 下一张图片面, 255)
-                    pygame.display.flip()
+                    _提交开场帧()
                     播放时钟.tick(60)
 
         最后一张图片路径 = 图片路径列表[-1]
@@ -539,7 +556,7 @@ def 主函数():
             上下文["屏幕"].fill((0, 0, 0))
             if 最后一张图片面 is not None:
                 _绘制居中图片(上下文["屏幕"], 最后一张图片面, 255)
-            pygame.display.flip()
+            _提交开场帧()
             播放时钟.tick(60)
 
         收尾开始时间 = time.perf_counter()
@@ -556,16 +573,21 @@ def 主函数():
             上下文["屏幕"].fill((0, 0, 0))
             if 最后一张图片面 is not None:
                 _绘制居中图片(上下文["屏幕"], 最后一张图片面, 最后一张透明度)
-            pygame.display.flip()
+            _提交开场帧()
             播放时钟.tick(60)
 
         上下文["屏幕"].fill((0, 0, 0))
-        pygame.display.flip()
+        _提交开场帧()
 
     def _退出程序():
         音乐.停止()
         try:
             背景视频.关闭()
+        except Exception:
+            pass
+        try:
+            if 显示后端 is not None:
+                显示后端.关闭()
         except Exception:
             pass
         pygame.quit()
@@ -574,20 +596,27 @@ def 主函数():
     # _切换英文输入法()
 
     pygame.init()
-    pygame.display.set_caption("e舞成名重构版")
-
-    信息 = pygame.display.Info()
+    窗口标题 = "e舞成名重构版"
 
     默认窗口w, 默认窗口h = 1280, 720
-    初始w = min(默认窗口w, int(信息.current_w or 默认窗口w))
-    初始h = min(默认窗口h, int(信息.current_h or 默认窗口h))
-    屏幕 = _创建显示窗口((初始w, 初始h), pygame.RESIZABLE)
+    桌面w, 桌面h = 取桌面尺寸((默认窗口w, 默认窗口h))
+    初始w = min(默认窗口w, int(桌面w or 默认窗口w))
+    初始h = min(默认窗口h, int(桌面h or 默认窗口h))
+    显示后端 = 创建显示后端(
+        (初始w, 初始h),
+        pygame.RESIZABLE,
+        窗口标题,
+        偏好="software",
+    )
+    屏幕 = 显示后端.取绘制屏幕()
 
     # time.sleep(0.15)
     # _切换英文输入法()
     pygame.event.clear()
 
     def _最大化窗口():
+        if 显示后端 is not None and 显示后端.最大化窗口():
+            return
         if sys.platform != "win32":
             return
         try:
@@ -650,6 +679,10 @@ def 主函数():
         "状态": 状态,
         "全局点击特效": 全局点击特效,
         "背景视频": None,
+        "显示后端": 显示后端,
+        "渲染后端名称": str(getattr(显示后端, "名称", "software") or "software"),
+        "主循环最近统计": {},
+        "显示后端最近统计": {},
     }
 
     # backmovies目录 = 资源.get(
@@ -1151,94 +1184,102 @@ def 主函数():
         return True
 
     while True:
+        循环开始秒 = time.perf_counter()
         时钟.tick(_获取当前目标帧率())
 
-        for 事件 in pygame.event.get():
-            if 事件.type == pygame.QUIT:
-                _退出程序()
+        for 原始事件 in pygame.event.get():
+            事件列表 = (
+                显示后端.处理事件(原始事件)
+                if 显示后端 is not None
+                else [原始事件]
+            )
+            for 事件 in 事件列表:
+                if 事件.type == pygame.QUIT:
+                    _退出程序()
 
-            if (
-                事件.type == pygame.KEYDOWN
-                and int(事件.key) == int(投币快捷键)
-                and (not bool(投币快捷键录入中))
-            ):
-                _全局投币一次()
-                if (not 过渡.是否进行中()) and 当前场景名 == "投币":
-                    try:
-                        当前币 = int(状态.get("投币数", 0) or 0)
-                    except Exception:
-                        当前币 = 0
-                    所需信用 = 取每局所需信用(状态)
-                    if 当前币 >= int(所需信用):
-                        _显示调试提示(
-                            f"已满足开局条件：请选择 1P / 2P（{int(当前币)}/{int(所需信用)}）",
-                            0.9,
-                        )
-                    else:
-                        _显示调试提示(
-                            f"还需 {max(0, int(所需信用) - 当前币)} 币（{int(所需信用)}币开局）",
-                            0.9,
-                        )
-                continue
+                if (
+                    事件.type == pygame.KEYDOWN
+                    and int(事件.key) == int(投币快捷键)
+                    and (not bool(投币快捷键录入中))
+                ):
+                    _全局投币一次()
+                    if (not 过渡.是否进行中()) and 当前场景名 == "投币":
+                        try:
+                            当前币 = int(状态.get("投币数", 0) or 0)
+                        except Exception:
+                            当前币 = 0
+                        所需信用 = 取每局所需信用(状态)
+                        if 当前币 >= int(所需信用):
+                            _显示调试提示(
+                                f"已满足开局条件：请选择 1P / 2P（{int(当前币)}/{int(所需信用)}）",
+                                0.9,
+                            )
+                        else:
+                            _显示调试提示(
+                                f"还需 {max(0, int(所需信用) - 当前币)} 币（{int(所需信用)}币开局）",
+                                0.9,
+                            )
+                    continue
 
-            if 事件.type == pygame.KEYDOWN and 事件.key == pygame.K_F11:
-                if not 过渡.是否进行中():
-                    _切换全屏()
-                continue
+                if 事件.type == pygame.KEYDOWN and 事件.key == pygame.K_F11:
+                    if not 过渡.是否进行中():
+                        _切换全屏()
+                    continue
 
-            if 事件.type == pygame.VIDEORESIZE and (not 是否全屏):
-                新w = int(max(960, int(getattr(事件, "w", 0) or 0)))
-                新h = int(max(540, int(getattr(事件, "h", 0) or 0)))
-                屏幕 = _创建显示窗口((新w, 新h), pygame.RESIZABLE)
-                上下文["屏幕"] = 屏幕
-                上次窗口尺寸 = 屏幕.get_size()
+                if 事件.type == pygame.VIDEORESIZE and (not 是否全屏):
+                    新w = int(max(960, int(getattr(事件, "w", 0) or 0)))
+                    新h = int(max(540, int(getattr(事件, "h", 0) or 0)))
+                    if 显示后端 is not None:
+                        显示后端.调整窗口模式((新w, 新h), pygame.RESIZABLE)
+                        _同步屏幕引用()
+                    上次窗口尺寸 = 上下文["屏幕"].get_size()
 
-            # if 事件.type == pygame.KEYDOWN and 事件.key == pygame.K_F5:
-            #     if not 过渡.是否进行中():
-            #         _热更新当前场景()
-            #     continue
+                # if 事件.type == pygame.KEYDOWN and 事件.key == pygame.K_F5:
+                #     if not 过渡.是否进行中():
+                #         _热更新当前场景()
+                #     continue
 
-            if 事件.type == pygame.MOUSEBUTTONDOWN and 事件.button == 1:
-                x, y = 事件.pos
-                全局点击特效.触发(x, y)
+                if 事件.type == pygame.MOUSEBUTTONDOWN and 事件.button == 1:
+                    x, y = 事件.pos
+                    全局点击特效.触发(x, y)
 
-            if 过渡.是否进行中():
-                continue
+                if 过渡.是否进行中():
+                    continue
 
-            if _当前场景允许非游戏菜单():
-                if 事件.type == pygame.KEYDOWN and 事件.key == pygame.K_ESCAPE:
-                    if bool(非游戏菜单开启) and bool(投币快捷键录入中):
-                        投币快捷键录入中 = False
-                        _显示调试提示("已取消修改投币快捷键", 1.0)
-                    else:
-                        非游戏菜单开启 = not bool(非游戏菜单开启)
-                        if not 非游戏菜单开启:
+                if _当前场景允许非游戏菜单():
+                    if 事件.type == pygame.KEYDOWN and 事件.key == pygame.K_ESCAPE:
+                        if bool(非游戏菜单开启) and bool(投币快捷键录入中):
                             投币快捷键录入中 = False
+                            _显示调试提示("已取消修改投币快捷键", 1.0)
+                        else:
+                            非游戏菜单开启 = not bool(非游戏菜单开启)
+                            if not 非游戏菜单开启:
+                                投币快捷键录入中 = False
+                            非游戏菜单索引 = 0
+                            状态["非游戏菜单背景音乐关闭"] = bool(非游戏菜单背景音乐关闭)
+                        continue
+
+                    if _处理非游戏菜单按键(事件):
+                        continue
+                else:
+                    if 非游戏菜单开启:
+                        非游戏菜单开启 = False
                         非游戏菜单索引 = 0
-                        状态["非游戏菜单背景音乐关闭"] = bool(非游戏菜单背景音乐关闭)
-                    continue
+                        投币快捷键录入中 = False
 
-                if _处理非游戏菜单按键(事件):
-                    continue
-            else:
-                if 非游戏菜单开启:
-                    非游戏菜单开启 = False
-                    非游戏菜单索引 = 0
-                    投币快捷键录入中 = False
+                踏板动作 = 解析踏板动作(事件)
+                if 踏板动作 is not None:
+                    处理踏板 = getattr(当前场景, "处理全局踏板", None)
+                    if callable(处理踏板):
+                        try:
+                            踏板结果 = 处理踏板(踏板动作)
+                        except Exception:
+                            踏板结果 = None
+                        _处理场景返回结果(踏板结果)
+                        continue
 
-            踏板动作 = 解析踏板动作(事件)
-            if 踏板动作 is not None:
-                处理踏板 = getattr(当前场景, "处理全局踏板", None)
-                if callable(处理踏板):
-                    try:
-                        踏板结果 = 处理踏板(踏板动作)
-                    except Exception:
-                        踏板结果 = None
-                    _处理场景返回结果(踏板结果)
-                    continue
-
-            结果 = 当前场景.处理事件(事件)
-            _处理场景返回结果(结果)
+                结果 = 当前场景.处理事件(事件)
+                _处理场景返回结果(结果)
 
         if (not 过渡.是否进行中()) and hasattr(当前场景, "更新"):
             try:
@@ -1250,6 +1291,9 @@ def 主函数():
         过渡.更新(_执行场景切换)
         入场.更新()
 
+        CPU绘制开始秒 = time.perf_counter()
+        上下文["GPU上传脏矩形列表"] = None
+        上下文["GPU强制全量上传"] = False
         当前场景.绘制()
         _绘制非游戏菜单()
         全局点击特效.更新并绘制(上下文["屏幕"])
@@ -1272,8 +1316,39 @@ def 主函数():
             屏幕=上下文["屏幕"],
             字体对象=上下文["字体"].get("小字"),
         )
+        CPU绘制毫秒 = (time.perf_counter() - CPU绘制开始秒) * 1000.0
 
-        pygame.display.flip()
+        呈现统计 = {}
+        if 显示后端 is not None:
+            def _绘制GPU叠加(后端):
+                绘制方法 = getattr(当前场景, "绘制GPU叠加", None)
+                if callable(绘制方法):
+                    绘制方法(后端)
+
+            GPU上传脏矩形列表 = 上下文.get("GPU上传脏矩形列表", None)
+            GPU强制全量上传 = bool(上下文.get("GPU强制全量上传", False))
+            try:
+                if callable(getattr(过渡, "是否进行中", None)) and bool(过渡.是否进行中()):
+                    GPU强制全量上传 = True
+                if callable(getattr(入场, "是否进行中", None)) and bool(入场.是否进行中()):
+                    GPU强制全量上传 = True
+            except Exception:
+                GPU强制全量上传 = True
+            呈现统计 = 显示后端.呈现(
+                _绘制GPU叠加,
+                上传脏矩形列表=GPU上传脏矩形列表,
+                强制全量上传=bool(GPU强制全量上传),
+            ) or {}
+        else:
+            pygame.display.flip()
+        帧总毫秒 = (time.perf_counter() - 循环开始秒) * 1000.0
+        上下文["主循环最近统计"] = {
+            "cpu_draw_ms": float(CPU绘制毫秒),
+            "frame_ms": float(帧总毫秒),
+        }
+        上下文["显示后端最近统计"] = (
+            dict(呈现统计) if isinstance(呈现统计, dict) else {}
+        )
 
 
 if __name__ == "__main__":
