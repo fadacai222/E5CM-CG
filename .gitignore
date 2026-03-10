@@ -60,10 +60,12 @@ logs/
 *.pem
 *.key
 *.crt
-config.local.json
 
-电视跟跳设置.json
-加载页.json
-歌曲记录索引.json
-全局设置.json
-选歌设置.json
+# 忽略运行时/用户数据
+json/个人资料/
+json/电视跟跳设置.json
+json/加载页.json
+json/歌曲记录索引.json
+json/全局设置.json
+json/选歌设置.json
+json/个人资料.json
