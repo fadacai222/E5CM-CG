@@ -17,6 +17,7 @@ class 判定参数:
     搜索半径秒: float = 0.20
 
     长按每拍连击: int = 4
+    长按松手宽限毫秒: int = 360
 
 
 @dataclass
@@ -61,6 +62,7 @@ class 判定系统:
         self._长按tick游标: Dict[int, int] = {}  # 音符索引 -> tick_idx
         self._活跃长按索引: List[int] = []  # 已判定头且未结束的hold音符索引
         self._长按判定缓存: Dict[int, str] = {}  # 音符索引 -> hold_head 判定
+        self._长按最近按住秒: Dict[int, float] = {}  # 音符索引 -> 最近一次确认按住时间
 
     def 加载谱面(self, 音符列表: List[判定音符]):
         self._音符列表 = list(音符列表 or [])
@@ -78,6 +80,7 @@ class 判定系统:
         self._长按tick游标 = {}
         self._活跃长按索引 = []
         self._长按判定缓存 = {}
+        self._长按最近按住秒 = {}
 
     # ---------- 对外：按下 ----------
     def 处理按下(self, 轨道序号: int, 当前谱面秒: float) -> List[判定回报]:
@@ -136,6 +139,7 @@ class 判定系统:
         if 候选索引 not in self._活跃长按索引:
             self._活跃长按索引.append(候选索引)
         self._长按判定缓存[候选索引] = str(判定 or "perfect")
+        self._长按最近按住秒[候选索引] = float(当前谱面秒)
 
         return 回报列表
 
@@ -188,6 +192,9 @@ class 判定系统:
 
         # 2) hold tick：tick时刻 <= 当前秒 就结算一次（按住=perfect，否则miss）
         新活跃: List[int] = []
+        松手宽限秒 = max(
+            0.0, float(getattr(self.参数, "长按松手宽限毫秒", 0) or 0) / 1000.0
+        )
         for idx in self._活跃长按索引:
             if self._音符已结束[idx]:
                 continue
@@ -199,12 +206,20 @@ class 判定系统:
 
             tick游标 = int(self._长按tick游标.get(idx, 0))
             tick列表 = 音符.tick秒列表 or []
+            最近按住秒 = self._长按最近按住秒.get(idx, None)
+
+            if bool(轨道是否按下(int(音符.轨道序号))):
+                最近按住秒 = float(当前谱面秒)
+                self._长按最近按住秒[idx] = float(最近按住秒)
 
             while tick游标 < len(tick列表) and float(tick列表[tick游标]) <= float(
                 当前谱面秒
             ):
-                是否按住 = bool(轨道是否按下(int(音符.轨道序号)))
-                if 是否按住:
+                tick秒 = float(tick列表[tick游标])
+                是否视为按住 = 最近按住秒 is not None and (
+                    tick秒 - float(最近按住秒)
+                ) <= 松手宽限秒
+                if 是否视为按住:
                     tick判定 = str(self._长按判定缓存.get(idx, "perfect") or "perfect")
                     回报列表.append(
                         判定回报(
@@ -238,6 +253,7 @@ class 判定系统:
             ):
                 self._音符已结束[idx] = True
                 self._长按判定缓存.pop(idx, None)
+                self._长按最近按住秒.pop(idx, None)
             else:
                 新活跃.append(idx)
 
@@ -283,6 +299,7 @@ class 判定系统:
                         if idx not in self._活跃长按索引:
                             self._活跃长按索引.append(idx)
                         self._长按判定缓存[idx] = "perfect"
+                        self._长按最近按住秒[idx] = float(当前谱面秒)
 
                     游标 += 1
                     continue
@@ -324,6 +341,7 @@ class 判定系统:
             ):
                 self._音符已结束[idx] = True
                 self._长按判定缓存.pop(idx, None)
+                self._长按最近按住秒.pop(idx, None)
             else:
                 新活跃.append(idx)
 

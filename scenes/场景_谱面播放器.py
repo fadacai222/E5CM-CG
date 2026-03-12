@@ -2418,6 +2418,28 @@ class 场景_谱面播放器(场景基类):
         self._保存电视跟跳开关(bool(self._电视跟跳开启))
         self._同步电视跟跳状态()
 
+    def _菜单切换自动播放(self):
+        if bool(getattr(self, "_电视跟跳开启", False)):
+            self._电视跟跳开启 = False
+            self._保存电视跟跳开关(False)
+            self._是否自动模式 = False
+            try:
+                self._载荷["自动播放"] = False
+            except Exception:
+                pass
+            self._同步电视跟跳状态()
+        else:
+            self._是否自动模式 = not bool(getattr(self, "_是否自动模式", False))
+            try:
+                if self._判定系统 is not None:
+                    self._判定系统.自动模式 = bool(self._是否自动模式)
+            except Exception:
+                pass
+            try:
+                self._载荷["自动播放"] = bool(self._是否自动模式)
+            except Exception:
+                pass
+
     @staticmethod
     def _规范动态背景模式(值: Any) -> str:
         return DynamicBackgroundManager.normalize_mode(值)
@@ -3414,7 +3436,7 @@ class 场景_谱面播放器(场景基类):
             if bool(getattr(self, "_电视跟跳开启", False)):
                 self._是否自动模式 = True
                 self._同步电视跟跳状态()
-                self._设置操作反馈("电视跟跳已开启，请到ESC菜单关闭")
+                self._设置操作反馈("自动播放已在ESC菜单开启，请到ESC菜单关闭")
                 return None
 
             self._是否自动模式 = not bool(self._是否自动模式)
@@ -4034,9 +4056,7 @@ class 场景_谱面播放器(场景基类):
         性能状态 = "已开启" if bool(self._性能模式) else "已关闭"
         调速文本 = f"X{float(getattr(self, '_卷轴速度倍率', 4.0) or 4.0):.1f}"
         背景亮度文本 = self._取背景亮度菜单文本()
-        电视跟跳状态 = (
-            "已开启" if bool(getattr(self, "_电视跟跳开启", False)) else "已关闭"
-        )
+        自动播放状态 = "已开启" if bool(getattr(self, "_是否自动模式", False)) else "已关闭"
 
         return [
             f"调速（{调速文本}）",
@@ -4048,7 +4068,7 @@ class 场景_谱面播放器(场景基类):
             f"大小（{self._取当前大小选项文本()}）",
             f"切换背景亮度（{背景亮度文本}）",
             f"极简性能模式（{性能状态}）",
-            f"无踏板电视跟跳（{电视跟跳状态}）",
+            f"自动播放（{自动播放状态}）",
             "退出本局",
             "退出到桌面",
         ]
@@ -4225,9 +4245,9 @@ class 场景_谱面播放器(场景基类):
             return None
 
         if 选项索引 == 9:
-            self._菜单切换电视跟跳()
+            self._菜单切换自动播放()
             self._设置操作反馈(
-                f"电视跟跳已{'开启' if bool(getattr(self, '_电视跟跳开启', False)) else '关闭'}"
+                f"自动播放已{'开启' if bool(getattr(self, '_是否自动模式', False)) else '关闭'}"
             )
             return None
 
@@ -4440,7 +4460,7 @@ class 场景_谱面播放器(场景基类):
 
         try:
             常亮文图 = self._小字体.render(
-                "电视跟跳已开启", True, (255, 252, 210)
+                "自动播放已开启", True, (255, 252, 210)
             ).convert_alpha()
         except Exception:
             return
@@ -4516,8 +4536,8 @@ class 场景_谱面播放器(场景基类):
             遮罩.fill((0, 0, 0, 188))
             屏幕.blit(遮罩, (0, 0))
 
-            面板宽 = int(max(820, min(1120, 屏宽 * 0.62)))
-            面板高 = int(max(520, min(int(屏高 * 0.88), 210 + 项数量 * 62)))
+            面板宽 = int(max(880, min(1180, 屏宽 * 0.88)))
+            面板高 = int(max(560, min(int(屏高 * 0.94), 屏高 - 24)))
             面板 = pygame.Rect(
                 int((屏宽 - 面板宽) // 2),
                 int((屏高 - 面板高) // 2),
@@ -4547,34 +4567,73 @@ class 场景_谱面播放器(场景基类):
                 "鼠标点击 / 小键盘1-3切换 / 5确认",
                 "游戏中小键盘1/3/5/7/9控制踏板",
             ]
-            按钮高 = 52
-            按钮间距 = 10
+            按钮间距 = 8
+            分组间距 = 18
+            分组内边距 = 14
             选项字 = self._小字体
             y = int(面板.y + 92)
-            双列项数 = min(6, len(项列表))
-            半宽间距 = 16
-            半宽按钮宽 = int((面板.w - 48 - 半宽间距) // 2)
-            半宽左x = int(面板.x + 24)
-            半宽右x = int(半宽左x + 半宽按钮宽 + 半宽间距)
+            左列数量 = int(min(7, len(项列表)))
+            右列数量 = int(max(0, len(项列表) - 左列数量))
+            最大列数量 = int(max(1, 左列数量, 右列数量))
+            按钮可用高 = int(max(320, 面板.h - 92 - 84))
+            if 最大列数量 > 0:
+                按钮高 = int(
+                    max(
+                        34,
+                        min(
+                            52,
+                            (
+                                按钮可用高
+                                - 2 * 分组内边距
+                                - max(0, 最大列数量 - 1) * 按钮间距
+                            )
+                            / 最大列数量,
+                        ),
+                    )
+                )
+            else:
+                按钮高 = 42
+
+            分组宽 = int((面板.w - 48 - 分组间距) // 2)
+            左分组rect = pygame.Rect(int(面板.x + 24), int(y), int(分组宽), 0)
+            右分组rect = pygame.Rect(
+                int(左分组rect.right + 分组间距),
+                int(y),
+                int(分组宽),
+                0,
+            )
+            分组高 = int(
+                2 * 分组内边距
+                + 最大列数量 * 按钮高
+                + max(0, 最大列数量 - 1) * 按钮间距
+            )
+            左分组rect.h = int(分组高)
+            右分组rect.h = int(分组高)
+
+            for 分组rect in (左分组rect, 右分组rect):
+                pygame.draw.rect(屏幕, (10, 16, 28), 分组rect, border_radius=18)
+                pygame.draw.rect(
+                    屏幕,
+                    (56, 82, 124),
+                    分组rect,
+                    width=1,
+                    border_radius=18,
+                )
+
             for idx, 项 in enumerate(项列表):
                 选中 = idx == int(self._暂停菜单索引)
-                if idx < 双列项数:
-                    列 = int(idx % 2)
-                    行 = int(idx // 2)
-                    行rect = pygame.Rect(
-                        半宽左x if 列 == 0 else 半宽右x,
-                        int(y + 行 * (按钮高 + 按钮间距)),
-                        半宽按钮宽,
-                        int(按钮高),
-                    )
+                if idx < 左列数量:
+                    所在列rect = 左分组rect
+                    列内索引 = int(idx)
                 else:
-                    基准y = int(y + ((双列项数 + 1) // 2) * (按钮高 + 按钮间距) + 10)
-                    行rect = pygame.Rect(
-                        int(面板.x + 24),
-                        int(基准y + (idx - 双列项数) * (按钮高 + 按钮间距)),
-                        int(面板.w - 48),
-                        int(按钮高),
-                    )
+                    所在列rect = 右分组rect
+                    列内索引 = int(idx - 左列数量)
+                行rect = pygame.Rect(
+                    int(所在列rect.x + 分组内边距),
+                    int(所在列rect.y + 分组内边距 + 列内索引 * (按钮高 + 按钮间距)),
+                    int(所在列rect.w - 2 * 分组内边距),
+                    int(按钮高),
+                )
                 pygame.draw.rect(
                     屏幕,
                     (22, 30, 48) if 选中 else (15, 22, 36),
@@ -4627,11 +4686,7 @@ class 场景_谱面播放器(场景基类):
                 )
                 self._暂停菜单项矩形.append(行rect)
 
-            if 项列表:
-                最后rect = self._暂停菜单项矩形[-1]
-                提示y = int(最后rect.bottom + 16)
-            else:
-                提示y = int(y + 12)
+            提示y = int(max(左分组rect.bottom, 右分组rect.bottom) + 16)
             for 文本 in 提示行:
                 行面 = self._小字体.render(
                     str(文本), True, (132, 148, 178)
@@ -4643,7 +4698,7 @@ class 场景_谱面播放器(场景基类):
                 屏幕.blit(行面, (面板.x + 24, 提示y))
                 提示y += int(行面.get_height()) + 2
 
-            if bool(self._动态背景已启用()):
+            if bool(self._动态背景已启用()) and (面板.bottom - 提示y) >= 164:
                 预览框 = pygame.Rect(
                     int(面板.right - 272),
                     int(面板.bottom - 188),

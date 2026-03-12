@@ -4070,7 +4070,7 @@ class 选歌游戏:
 
         self.动画中 = False
         self.动画开始时间 = 0.0
-        self.动画持续 = 1.0
+        self.动画持续 = 0.35
         self.动画方向 = 0
         self.动画目标页 = 0
         self.动画旧页卡片 = []
@@ -5994,6 +5994,211 @@ class 选歌游戏:
             self.当前页卡片 = self.生成指定页卡片(self.当前页)
             self.安排预加载(基准页=self.当前页)
 
+    def _确保翻页交互状态(self):
+        if getattr(self, "_翻页交互已初始化", False):
+            return
+        self._翻页交互已初始化 = True
+        self._滑动_按下 = False
+        self._滑动_起点 = (0, 0)
+        self._滑动_已触发 = False
+        self._滑动_已移动 = False
+        self._连续翻页激活 = False
+        self._连续翻页方向 = 0
+        self._连续翻页来源 = ""
+        self._连续翻页下次触发秒 = 0.0
+        self._连续翻页首次延迟秒 = 0.26
+        self._连续翻页间隔秒 = 0.03
+
+    def _停止连续翻页(self):
+        self._确保翻页交互状态()
+        self._连续翻页激活 = False
+        self._连续翻页方向 = 0
+        self._连续翻页来源 = ""
+        self._连续翻页下次触发秒 = 0.0
+
+    def _触发列表翻页(self, 步数: int):
+        try:
+            步数 = int(步数)
+        except Exception:
+            步数 = 0
+        if 步数 == 0:
+            return
+
+        总页数 = int(self.总页数())
+        if 总页数 <= 1:
+            return
+
+        目标页 = (int(self.当前页) + int(步数)) % int(总页数)
+        方向 = 1 if int(步数) > 0 else -1
+        self.触发翻页动画(目标页=目标页, 方向=方向)
+
+    def _开始连续翻页(self, 方向: int, 来源: str, 立即触发: bool = True):
+        self._确保翻页交互状态()
+        方向 = 1 if int(方向) > 0 else -1
+        if (
+            bool(getattr(self, "_连续翻页激活", False))
+            and int(getattr(self, "_连续翻页方向", 0) or 0) == int(方向)
+            and str(getattr(self, "_连续翻页来源", "") or "") == str(来源 or "")
+        ):
+            return
+        self._连续翻页激活 = True
+        self._连续翻页方向 = int(方向)
+        self._连续翻页来源 = str(来源 or "")
+        当前秒 = float(time.perf_counter())
+        self._连续翻页下次触发秒 = 当前秒 + float(
+            getattr(self, "_连续翻页首次延迟秒", 0.26)
+        )
+        if 立即触发:
+            self._触发列表翻页(int(方向))
+
+    def _更新连续翻页(self):
+        self._确保翻页交互状态()
+        if not bool(getattr(self, "_连续翻页激活", False)):
+            return
+        if str(getattr(self, "_连续翻页来源", "") or "") == "keyboard":
+            try:
+                按键状态 = pygame.key.get_pressed()
+            except Exception:
+                按键状态 = None
+            方向 = int(getattr(self, "_连续翻页方向", 0) or 0)
+            是否仍按住 = bool(
+                按键状态
+                and (
+                    按键状态[pygame.K_LEFT]
+                    if int(方向) < 0
+                    else 按键状态[pygame.K_RIGHT]
+                )
+            )
+            if not bool(是否仍按住):
+                self._停止连续翻页()
+                return
+        if bool(getattr(self, "动画中", False)):
+            return
+        if bool(getattr(self, "是否详情页", False)):
+            self._停止连续翻页()
+            return
+        if bool(getattr(self, "是否星级筛选页", False)) or bool(
+            getattr(self, "是否设置页", False)
+        ):
+            self._停止连续翻页()
+            return
+
+        当前秒 = float(time.perf_counter())
+        if 当前秒 < float(getattr(self, "_连续翻页下次触发秒", 0.0) or 0.0):
+            return
+
+        self._触发列表翻页(int(getattr(self, "_连续翻页方向", 0) or 0))
+        self._连续翻页下次触发秒 = 当前秒 + float(
+            getattr(self, "_连续翻页间隔秒", 0.03)
+        )
+
+    def _处理列表页点击进入详情(self, 点击位置) -> bool:
+        if not self.中间区域.collidepoint(点击位置):
+            return False
+
+        _列表, 映射 = self.当前歌曲列表与映射()
+        for idx, 卡片 in enumerate(self.当前页卡片):
+            if not 卡片.矩形.collidepoint(点击位置):
+                continue
+            视图索引 = self.当前页 * self.每页数量 + idx
+            原始索引 = 映射[视图索引] if 0 <= 视图索引 < len(映射) else 0
+            try:
+                self._播放按钮音效()
+            except Exception:
+                pass
+            self.进入详情_原始索引(int(原始索引))
+            return True
+        return False
+
+    def _处理列表页输入(self, 事件) -> bool:
+        self._确保翻页交互状态()
+
+        if 事件.type == pygame.MOUSEMOTION:
+            self._踏板选中视图索引 = None
+            self._同步踏板卡片高亮()
+            for 卡片 in self.当前页卡片:
+                try:
+                    卡片.处理事件(事件)
+                except Exception:
+                    pass
+
+        if 事件.type == pygame.MOUSEBUTTONDOWN and 事件.button == 1:
+            if self.中间区域.collidepoint(事件.pos):
+                self._滑动_按下 = True
+                self._滑动_起点 = tuple(事件.pos)
+                self._滑动_已触发 = False
+                self._滑动_已移动 = False
+                return True
+
+        if 事件.type == pygame.MOUSEMOTION:
+            if bool(getattr(self, "_滑动_按下", False)) and (
+                not bool(getattr(self, "_滑动_已触发", False))
+            ):
+                try:
+                    if hasattr(事件, "buttons") and 事件.buttons and (not 事件.buttons[0]):
+                        pass
+                    else:
+                        sx, sy = getattr(self, "_滑动_起点", (0, 0))
+                        dx = int(事件.pos[0] - sx)
+                        dy = int(事件.pos[1] - sy)
+
+                        if abs(dx) > 12 or abs(dy) > 12:
+                            self._滑动_已移动 = True
+
+                        阈值 = max(60, int(self.宽 * 0.05))
+                        if (abs(dx) >= 阈值) and (abs(dx) > int(abs(dy) * 1.2)):
+                            self._触发列表翻页(+1 if dx < 0 else -1)
+                            self._滑动_已触发 = True
+                except Exception:
+                    pass
+                return True
+
+        if 事件.type == pygame.MOUSEBUTTONUP and 事件.button == 1:
+            if bool(getattr(self, "_滑动_按下", False)):
+                self._滑动_按下 = False
+
+                if (not bool(getattr(self, "_滑动_已触发", False))) and (
+                    not bool(getattr(self, "_滑动_已移动", False))
+                ):
+                    self._处理列表页点击进入详情(事件.pos)
+
+                self._滑动_已触发 = False
+                self._滑动_已移动 = False
+                return True
+
+        if 事件.type == pygame.MOUSEBUTTONDOWN:
+            if 事件.button == 4:
+                self._停止连续翻页()
+                self._触发列表翻页(-1)
+                return True
+            if 事件.button == 5:
+                self._停止连续翻页()
+                self._触发列表翻页(+1)
+                return True
+
+        if 事件.type == pygame.KEYDOWN:
+            if 事件.key == pygame.K_LEFT:
+                self._开始连续翻页(-1, 来源="keyboard", 立即触发=True)
+                return True
+            if 事件.key == pygame.K_RIGHT:
+                self._开始连续翻页(+1, 来源="keyboard", 立即触发=True)
+                return True
+            if 事件.key == pygame.K_ESCAPE and getattr(self, "当前筛选星级", None) is not None:
+                self._停止连续翻页()
+                self._启动过渡(
+                    self._特效_按钮,
+                    pygame.Rect(self.宽 // 2 - 60, self.顶部高 // 2 - 20, 120, 40),
+                    lambda: self.设置星级筛选(None),
+                )
+                return True
+
+        if 事件.type == pygame.KEYUP and 事件.key in (pygame.K_LEFT, pygame.K_RIGHT):
+            if str(getattr(self, "_连续翻页来源", "") or "") == "keyboard":
+                self._停止连续翻页()
+                return True
+
+        return False
+
     def _取当前视图索引(self, 映射: List[int]) -> int:
         try:
             return int(映射.index(int(self.当前选择原始索引)))
@@ -6824,6 +7029,7 @@ class 选歌游戏:
         if getattr(self, "_公共交互已初始化", False):
             return
         self._公共交互已初始化 = True
+        self._确保翻页交互状态()
 
         # 过渡（按钮截图缩放淡出）
         self._过渡_特效 = None
@@ -7153,13 +7359,6 @@ class 选歌游戏:
     def 主循环(self):
         self._确保公共交互()
 
-        # ✅ 初始化滑动状态（防御：旧存档/热更情况下可能不存在）
-        if not hasattr(self, "_滑动_按下"):
-            self._滑动_按下 = False
-            self._滑动_起点 = (0, 0)
-            self._滑动_已触发 = False
-            self._滑动_已移动 = False
-
         while True:
             if self._需要退出:
                 try:
@@ -7180,6 +7379,7 @@ class 选歌游戏:
 
             self.每帧执行预加载(每帧数量=3)
             self.更新动画状态()
+            self._更新连续翻页()
             self._更新过渡()
 
             # ===== 绘制 =====
@@ -7408,103 +7608,8 @@ class 选歌游戏:
                             self.下一首()
                     continue
 
-                # ===== 列表页：hover =====
-                if 事件.type == pygame.MOUSEMOTION:
-                    for 卡片 in self.当前页卡片:
-                        卡片.处理事件(事件)
-
-                # ===== 列表页：滑动翻页（中间区域）=====
-                if 事件.type == pygame.MOUSEBUTTONDOWN and 事件.button == 1:
-                    if self.中间区域.collidepoint(事件.pos):
-                        self._滑动_按下 = True
-                        self._滑动_起点 = tuple(事件.pos)
-                        self._滑动_已触发 = False
-                        self._滑动_已移动 = False
-
-                if 事件.type == pygame.MOUSEMOTION:
-                    if bool(getattr(self, "_滑动_按下", False)) and (
-                        not bool(getattr(self, "_滑动_已触发", False))
-                    ):
-                        try:
-                            # buttons[0]：左键是否按住
-                            if (
-                                hasattr(事件, "buttons")
-                                and 事件.buttons
-                                and (not 事件.buttons[0])
-                            ):
-                                pass
-                            else:
-                                sx, sy = getattr(self, "_滑动_起点", (0, 0))
-                                dx = int(事件.pos[0] - sx)
-                                dy = int(事件.pos[1] - sy)
-
-                                if abs(dx) > 12 or abs(dy) > 12:
-                                    self._滑动_已移动 = True
-
-                                阈值 = max(60, int(self.宽 * 0.05))
-                                if (abs(dx) >= 阈值) and (abs(dx) > int(abs(dy) * 1.2)):
-                                    # dx<0：向左滑 => 下一页；dx>0：向右滑 => 上一页
-                                    if dx < 0:
-                                        self.触发翻页动画(
-                                            目标页=self.当前页 + 1, 方向=+1
-                                        )
-                                    else:
-                                        self.触发翻页动画(
-                                            目标页=self.当前页 - 1, 方向=-1
-                                        )
-
-                                    self._滑动_已触发 = True
-                        except Exception:
-                            pass
-
-                if 事件.type == pygame.MOUSEBUTTONUP and 事件.button == 1:
-                    if bool(getattr(self, "_滑动_按下", False)):
-                        self._滑动_按下 = False
-
-                        # 没触发翻页、且没明显移动：认为是点击（进入详情）
-                        if (not bool(getattr(self, "_滑动_已触发", False))) and (
-                            not bool(getattr(self, "_滑动_已移动", False))
-                        ):
-                            if self.中间区域.collidepoint(事件.pos):
-                                列表, 映射 = self.当前歌曲列表与映射()
-                                for idx, 卡片 in enumerate(self.当前页卡片):
-                                    if 卡片.矩形.collidepoint(事件.pos):
-                                        视图索引 = self.当前页 * self.每页数量 + idx
-                                        原始索引 = (
-                                            映射[视图索引]
-                                            if 0 <= 视图索引 < len(映射)
-                                            else 0
-                                        )
-                                        self._播放按钮音效()
-                                        self.进入详情_原始索引(原始索引)
-                                        break
-
-                        # 清理一次性状态
-                        self._滑动_已触发 = False
-                        self._滑动_已移动 = False
-
-                # ===== 鼠标滚轮翻页（支持环绕）=====
-                if 事件.type == pygame.MOUSEBUTTONDOWN:
-                    if 事件.button == 4:
-                        self.触发翻页动画(目标页=self.当前页 - 1, 方向=-1)
-                    elif 事件.button == 5:
-                        self.触发翻页动画(目标页=self.当前页 + 1, 方向=+1)
-
-                # ===== 键盘翻页（列表页）=====
-                if 事件.type == pygame.KEYDOWN:
-                    if 事件.key == pygame.K_LEFT:
-                        self.触发翻页动画(目标页=self.当前页 - 1, 方向=-1)
-                    elif 事件.key == pygame.K_RIGHT:
-                        self.触发翻页动画(目标页=self.当前页 + 1, 方向=+1)
-                    elif 事件.key == pygame.K_ESCAPE:
-                        if self.当前筛选星级 is not None:
-                            self._启动过渡(
-                                self._特效_按钮,
-                                pygame.Rect(
-                                    self.宽 // 2 - 60, self.顶部高 // 2 - 20, 120, 40
-                                ),
-                                lambda: self.设置星级筛选(None),
-                            )
+                if self._处理列表页输入(事件):
+                    continue
 
 class 设置页布局调试器:
     def __init__(self, 保存路径: str):
@@ -8736,6 +8841,7 @@ def 选歌_帧更新(self):
     try:
         self.每帧执行预加载(每帧数量=3)
         self.更新动画状态()
+        self._更新连续翻页()
         self._更新过渡()
     except Exception:
         pass
@@ -8996,96 +9102,7 @@ def 选歌_处理事件_外部(self, 事件):
 
         return None
 
-    if 事件.type == pygame.MOUSEMOTION:
-        self._踏板选中视图索引 = None
-        self._同步踏板卡片高亮()
-        for 卡片 in self.当前页卡片:
-            try:
-                卡片.处理事件(事件)
-            except Exception:
-                pass
-
-    if not hasattr(self, "_滑动_按下"):
-        self._滑动_按下 = False
-        self._滑动_起点 = (0, 0)
-        self._滑动_已触发 = False
-        self._滑动_已移动 = False
-
-    if 事件.type == pygame.MOUSEBUTTONDOWN and 事件.button == 1:
-        if self.中间区域.collidepoint(事件.pos):
-            self._滑动_按下 = True
-            self._滑动_起点 = tuple(事件.pos)
-            self._滑动_已触发 = False
-            self._滑动_已移动 = False
-
-    if 事件.type == pygame.MOUSEMOTION:
-        if bool(getattr(self, "_滑动_按下", False)) and (
-            not bool(getattr(self, "_滑动_已触发", False))
-        ):
-            try:
-                if hasattr(事件, "buttons") and 事件.buttons and (not 事件.buttons[0]):
-                    pass
-                else:
-                    sx, sy = getattr(self, "_滑动_起点", (0, 0))
-                    dx = int(事件.pos[0] - sx)
-                    dy = int(事件.pos[1] - sy)
-
-                    if abs(dx) > 12 or abs(dy) > 12:
-                        self._滑动_已移动 = True
-
-                    阈值 = max(60, int(self.宽 * 0.05))
-                    if (abs(dx) >= 阈值) and (abs(dx) > int(abs(dy) * 1.2)):
-                        if dx < 0:
-                            self.触发翻页动画(目标页=self.当前页 + 1, 方向=+1)
-                        else:
-                            self.触发翻页动画(目标页=self.当前页 - 1, 方向=-1)
-                        self._滑动_已触发 = True
-            except Exception:
-                pass
-
-    if 事件.type == pygame.MOUSEBUTTONUP and 事件.button == 1:
-        if bool(getattr(self, "_滑动_按下", False)):
-            self._滑动_按下 = False
-
-            if (not bool(getattr(self, "_滑动_已触发", False))) and (
-                not bool(getattr(self, "_滑动_已移动", False))
-            ):
-                if self.中间区域.collidepoint(事件.pos):
-                    列表, 映射 = self.当前歌曲列表与映射()
-                    for idx, 卡片 in enumerate(self.当前页卡片):
-                        if 卡片.矩形.collidepoint(事件.pos):
-                            视图索引 = self.当前页 * self.每页数量 + idx
-                            原始索引 = (
-                                映射[视图索引] if 0 <= 视图索引 < len(映射) else 0
-                            )
-                            try:
-                                self._播放按钮音效()
-                            except Exception:
-                                pass
-                            self.进入详情_原始索引(原始索引)
-                            break
-
-            self._滑动_已触发 = False
-            self._滑动_已移动 = False
-
-    if 事件.type == pygame.MOUSEBUTTONDOWN:
-        if 事件.button == 4:
-            self.触发翻页动画(目标页=self.当前页 - 1, 方向=-1)
-        elif 事件.button == 5:
-            self.触发翻页动画(目标页=self.当前页 + 1, 方向=+1)
-
-    if 事件.type == pygame.KEYDOWN:
-        if 事件.key == pygame.K_LEFT:
-            self.触发翻页动画(目标页=self.当前页 - 1, 方向=-1)
-        elif 事件.key == pygame.K_RIGHT:
-            self.触发翻页动画(目标页=self.当前页 + 1, 方向=+1)
-        elif 事件.key == pygame.K_ESCAPE:
-            if getattr(self, "当前筛选星级", None) is not None:
-                self._启动过渡(
-                    self._特效_按钮,
-                    pygame.Rect(self.宽 // 2 - 60, self.顶部高 // 2 - 20, 120, 40),
-                    lambda: self.设置星级筛选(None),
-                )
+    self._处理列表页输入(事件)
 
     if bool(getattr(self, "_需要退出", False)):
         return str(getattr(self, "_返回状态", "NORMAL") or "NORMAL")

@@ -6,18 +6,10 @@ from typing import Dict, List, Optional, Tuple
 
 import pygame
 
-from core.常量与路径 import (
-    取项目根目录 as _公共取项目根目录,
-    取运行根目录 as _公共取运行根目录,
-)
+from core.常量与路径 import 取运行根目录 as _公共取运行根目录
 from core.对局状态 import (
-    初始化对局流程,
     取信用数,
     取每局所需信用,
-    取累计S数,
-    是否赠送第四把,
-    消耗信用,
-    设置对局流程,
     重置游戏流程状态,
 )
 from core.踏板控制 import 踏板动作_左, 踏板动作_右, 踏板动作_确认
@@ -30,6 +22,15 @@ from ui.settlement_layout_shared import (
     get_font,
     parse_color,
     render_text_surface,
+)
+from ui.settlement_scene_shared import (
+    加载结算提示资源,
+    执行返回选歌 as _执行共享返回选歌,
+    构建继续动作,
+    构建返回选歌动作 as _构建共享返回选歌动作,
+    推进对局流程,
+    取资源根目录 as _取资源根目录,
+    解析结算流程上下文,
 )
 
 
@@ -76,13 +77,6 @@ def _安全载图(路径: str, 透明: bool = True) -> Optional[pygame.Surface]:
     except Exception:
         pass
     return None
-
-
-def _取资源根目录(上下文: dict | None = None) -> str:
-    资源 = {}
-    if isinstance(上下文, dict):
-        资源 = 上下文.get("资源", {}) or {}
-    return _公共取项目根目录(资源 if isinstance(资源, dict) else {})
 
 
 class 场景_结算(场景基类):
@@ -133,7 +127,6 @@ class 场景_结算(场景基类):
         self._流程3阶段类型 = ""
         self._流程3阶段开始秒 = 0.0
 
-        self._流程3续币基准值 = 0
         self._流程3退出开始秒 = 0.0
 
         self._流程3是否显示倒计时 = False
@@ -145,7 +138,6 @@ class 场景_结算(场景基类):
         self._流程3每局所需信用 = 3
         self._流程3是否失败 = False
         self._流程3结算后S数 = 0
-        self._流程3已赠送第四把 = False
         self._流程3三把S赠送 = False
         self._流程3是按钮rect = pygame.Rect(0, 0, 1, 1)
         self._流程3否按钮rect = pygame.Rect(0, 0, 1, 1)
@@ -229,14 +221,13 @@ class 场景_结算(场景基类):
         self._流程3阶段开始秒 = time.perf_counter()
         self._流程3阶段持续秒 = 10.0
         self._流程3是否显示倒计时 = True
-        self._流程3续币基准值 = int(取信用数(self.上下文.get("状态", {})))
-        self._流程3继续动作 = {
-            **self._构建返回选歌动作(),
-            "下一关卡": int(下一关卡),
-            "重开新局": bool(重开新局),
-            "累计S数": 0 if 重开新局 else int(self._流程3结算后S数),
-            "赠送第四把": False,
-        }
+        self._流程3继续动作 = 构建继续动作(
+            self._构建返回选歌动作(),
+            下一关卡=下一关卡,
+            重开新局=重开新局,
+            累计S数=self._流程3结算后S数,
+            每局所需信用=self._流程3每局所需信用,
+        )
         self._流程3默认否动作 = {"类型": "投币"}
 
     def _进入流程3继续挑战提示(self, *, 下一关卡: int, 重开新局: bool):
@@ -246,14 +237,14 @@ class 场景_结算(场景基类):
         self._流程3阶段持续秒 = 10.0
         self._流程3是否显示倒计时 = True
         self._流程3按钮选中 = "是"
-        self._流程3继续动作 = {
-            **self._构建返回选歌动作(),
-            "下一关卡": int(下一关卡),
-            "重开新局": bool(重开新局),
-            "累计S数": 0 if 重开新局 else int(self._流程3结算后S数),
-            "赠送第四把": False,
-            "消耗信用": int(self._流程3每局所需信用),
-        }
+        self._流程3继续动作 = 构建继续动作(
+            self._构建返回选歌动作(),
+            下一关卡=下一关卡,
+            重开新局=重开新局,
+            累计S数=self._流程3结算后S数,
+            每局所需信用=self._流程3每局所需信用,
+            需要消耗信用=True,
+        )
         self._流程3默认否动作 = {"类型": "投币"}
 
     def _进入流程3自动提示(
@@ -282,17 +273,13 @@ class 场景_结算(场景基类):
         消耗数量: int = 0,
         重开新局: bool = False,
     ):
-        状态 = self.上下文.get("状态", {})
-        if 重开新局:
-            初始化对局流程(状态)
-            设置对局流程(状态, 当前把数=1, 累计S数=0, 赠送第四把=False)
-        if 消耗数量 > 0:
-            消耗信用(状态, int(消耗数量))
-        设置对局流程(
-            状态,
-            当前把数=int(下一关卡),
-            累计S数=int(累计S数),
-            赠送第四把=bool(赠送第四把),
+        推进对局流程(
+            self.上下文.get("状态", {}),
+            下一关卡=下一关卡,
+            累计S数=累计S数,
+            赠送第四把=赠送第四把,
+            消耗数量=消耗数量,
+            重开新局=重开新局,
         )
         self._进入流程3自动提示(
             提示键=提示键,
@@ -321,17 +308,13 @@ class 场景_结算(场景基类):
         下一关卡 = int(动作.get("下一关卡", 1) or 1)
         重开新局 = bool(动作.get("重开新局", False))
         累计S数 = int(动作.get("累计S数", 0) or 0)
-        状态 = self.上下文.get("状态", {})
-        if 重开新局:
-            初始化对局流程(状态)
-            设置对局流程(状态, 当前把数=1, 累计S数=0, 赠送第四把=False)
-        if int(动作.get("消耗信用", 0) or 0) > 0:
-            消耗信用(状态, int(动作.get("消耗信用", 0) or 0))
-        设置对局流程(
-            状态,
-            当前把数=int(下一关卡),
-            累计S数=int(累计S数),
+        推进对局流程(
+            self.上下文.get("状态", {}),
+            下一关卡=下一关卡,
+            累计S数=累计S数,
             赠送第四把=False,
+            消耗数量=int(动作.get("消耗信用", 0) or 0),
+            重开新局=重开新局,
         )
         self._开始流程3退出(self._构建返回选歌动作())
 
@@ -1748,32 +1731,11 @@ class 场景_结算(场景基类):
         self._玩家序号 = 2 if 玩家序号 == 2 else 1
         self._运行时布局缓存 = {}
         self._运行时布局缓存键 = None
-        try:
-            self._流程3当前关卡 = int(
-                self._载荷.get("当前关卡", self._载荷.get("局数", 1)) or 1
-            )
-        except Exception:
-            self._流程3当前关卡 = 1
-        self._流程3当前关卡 = max(1, int(self._流程3当前关卡))
-        评级 = str(self._载荷.get("评级", "") or "").strip().upper()
-        self._流程3是否失败 = bool(self._载荷.get("失败", False)) or 评级 == "F"
-        try:
-            self._流程3结算后S数 = int(
-                self._载荷.get(
-                    "结算后S数",
-                    self._载荷.get("累计S数", 取累计S数(self.上下文.get("状态", {}))),
-                )
-                or 0
-            )
-        except Exception:
-            self._流程3结算后S数 = 0
-        self._流程3结算后S数 = max(0, min(3, self._流程3结算后S数))
-        self._流程3已赠送第四把 = bool(
-            self._载荷.get(
-                "是否赠送第四把", 是否赠送第四把(self.上下文.get("状态", {}))
-            )
-        )
-        self._流程3三把S赠送 = bool(self._载荷.get("三把S赠送", False))
+        流程上下文 = 解析结算流程上下文(self._载荷, self.上下文.get("状态", {}))
+        self._流程3当前关卡 = int(流程上下文["当前关卡"])
+        self._流程3是否失败 = bool(流程上下文["是否失败"])
+        self._流程3结算后S数 = int(流程上下文["结算后S数"])
+        self._流程3三把S赠送 = bool(流程上下文["三把S赠送"])
         self._流程3每局所需信用 = int(取每局所需信用(self.上下文.get("状态", {})) or 3)
         self._流程3阶段类型 = ""
         self._流程3提示键 = ""
@@ -1781,7 +1743,6 @@ class 场景_结算(场景基类):
         self._流程3计时已启动 = False
         self._流程3阶段持续秒 = 0.0
         self._流程3是否显示倒计时 = False
-        self._流程3续币基准值 = 0
         self._流程3继续动作 = None
         self._流程3默认否动作 = None
         self._流程3按钮选中 = "是"
@@ -2736,209 +2697,14 @@ class 场景_结算(场景基类):
             _画单图(图像键, 中心x, 中心y, 宽, 高, 透明度)
 
     def _构建返回选歌动作(self) -> dict:
-        状态 = self.上下文.get("状态", {})
-        if not isinstance(状态, dict):
-            状态 = {}
-
-        加载页载荷 = 状态.get("加载页_载荷", {})
-        if not isinstance(加载页载荷, dict):
-            加载页载荷 = {}
-
-        def _取首个非空文本(*候选值) -> str:
-            for 候选值项 in 候选值:
-                try:
-                    文本 = str(候选值项 or "").strip()
-                except Exception:
-                    文本 = ""
-                if 文本:
-                    return 文本
-            return ""
-
-        def _取首个整数(默认值: int, *候选值) -> int:
-            for 候选值项 in 候选值:
-                try:
-                    if 候选值项 is None or str(候选值项).strip() == "":
-                        continue
-                    return int(候选值项)
-                except Exception:
-                    continue
-            return int(默认值)
-
-        def _取首个布尔值(默认值: bool, *候选值) -> bool:
-            for 候选值项 in 候选值:
-                if isinstance(候选值项, bool):
-                    return 候选值项
-                try:
-                    文本 = str(候选值项 or "").strip().lower()
-                except Exception:
-                    文本 = ""
-                if not 文本:
-                    continue
-                if 文本 in ("1", "true", "yes", "y", "on"):
-                    return True
-                if 文本 in ("0", "false", "no", "n", "off"):
-                    return False
-            return bool(默认值)
-
-        选歌类型 = _取首个非空文本(
-            self._载荷.get("选歌类型", ""),
-            self._载荷.get("类型", ""),
-            self._载荷.get("大模式", ""),
-            状态.get("选歌_类型", ""),
-            状态.get("大模式", ""),
-            状态.get("songs子文件夹", ""),
-            加载页载荷.get("选歌类型", ""),
-            加载页载荷.get("类型", ""),
-            加载页载荷.get("大模式", ""),
-            "竞速",
-        )
-
-        选歌模式 = _取首个非空文本(
-            self._载荷.get("选歌模式", ""),
-            self._载荷.get("模式", ""),
-            self._载荷.get("子模式", ""),
-            状态.get("选歌_模式", ""),
-            状态.get("子模式", ""),
-            加载页载荷.get("选歌模式", ""),
-            加载页载荷.get("模式", ""),
-            加载页载荷.get("子模式", ""),
-            "竞速",
-        )
-
-        恢复原始索引 = _取首个整数(
-            -1,
-            self._载荷.get("选歌原始索引", None),
-            self._载荷.get("原始索引", None),
-            状态.get("选歌_恢复原始索引", None),
-            状态.get("选歌原始索引", None),
-            加载页载荷.get("选歌原始索引", None),
-        )
-
-        恢复详情页 = _取首个布尔值(
-            False,
-            self._载荷.get("选歌恢复详情页", None),
-            状态.get("选歌_恢复详情页", None),
-            加载页载荷.get("选歌恢复详情页", None),
-        )
-
-        return {
-            "类型": "选歌",
-            "选歌类型": 选歌类型,
-            "选歌模式": 选歌模式,
-            "大模式": 选歌类型,
-            "子模式": 选歌模式,
-            "songs子文件夹": 选歌类型,
-            "选歌原始索引": int(恢复原始索引),
-            "选歌恢复详情页": bool(恢复详情页),
-        }
+        return _构建共享返回选歌动作(self._载荷, self.上下文.get("状态", {}))
 
     def _返回选歌(self, 动作: Optional[dict] = None):
-        状态 = (
-            self.上下文.get("状态", {})
-            if isinstance(self.上下文.get("状态", {}), dict)
-            else {}
+        return _执行共享返回选歌(
+            self.上下文.get("状态", {}),
+            self._载荷,
+            动作,
         )
-        动作 = 动作 if isinstance(动作, dict) else {}
-
-        加载页载荷 = 状态.get("加载页_载荷", {})
-        if not isinstance(加载页载荷, dict):
-            加载页载荷 = {}
-
-        def _取首个非空文本(*候选值) -> str:
-            for 候选值项 in 候选值:
-                try:
-                    文本 = str(候选值项 or "").strip()
-                except Exception:
-                    文本 = ""
-                if 文本:
-                    return 文本
-            return ""
-
-        def _取首个整数(默认值: int, *候选值) -> int:
-            for 候选值项 in 候选值:
-                try:
-                    if 候选值项 is None or str(候选值项).strip() == "":
-                        continue
-                    return int(候选值项)
-                except Exception:
-                    continue
-            return int(默认值)
-
-        def _取首个布尔值(默认值: bool, *候选值) -> bool:
-            for 候选值项 in 候选值:
-                if isinstance(候选值项, bool):
-                    return 候选值项
-                try:
-                    文本 = str(候选值项 or "").strip().lower()
-                except Exception:
-                    文本 = ""
-                if not 文本:
-                    continue
-                if 文本 in ("1", "true", "yes", "y", "on"):
-                    return True
-                if 文本 in ("0", "false", "no", "n", "off"):
-                    return False
-            return bool(默认值)
-
-        try:
-            选歌类型 = _取首个非空文本(
-                动作.get("选歌类型", ""),
-                动作.get("大模式", ""),
-                self._载荷.get("选歌类型", ""),
-                self._载荷.get("类型", ""),
-                self._载荷.get("大模式", ""),
-                状态.get("选歌_类型", ""),
-                状态.get("大模式", ""),
-                状态.get("songs子文件夹", ""),
-                加载页载荷.get("选歌类型", ""),
-                加载页载荷.get("类型", ""),
-                加载页载荷.get("大模式", ""),
-                "竞速",
-            )
-
-            选歌模式 = _取首个非空文本(
-                动作.get("选歌模式", ""),
-                动作.get("子模式", ""),
-                self._载荷.get("选歌模式", ""),
-                self._载荷.get("模式", ""),
-                self._载荷.get("子模式", ""),
-                状态.get("选歌_模式", ""),
-                状态.get("子模式", ""),
-                加载页载荷.get("选歌模式", ""),
-                加载页载荷.get("模式", ""),
-                加载页载荷.get("子模式", ""),
-                "竞速",
-            )
-
-            恢复原始索引 = _取首个整数(
-                -1,
-                动作.get("选歌原始索引", None),
-                self._载荷.get("选歌原始索引", None),
-                self._载荷.get("原始索引", None),
-                状态.get("选歌_恢复原始索引", None),
-                状态.get("选歌原始索引", None),
-                加载页载荷.get("选歌原始索引", None),
-            )
-
-            恢复详情页 = _取首个布尔值(
-                False,
-                动作.get("选歌恢复详情页", None),
-                self._载荷.get("选歌恢复详情页", None),
-                状态.get("选歌_恢复详情页", None),
-                加载页载荷.get("选歌恢复详情页", None),
-            )
-
-            状态["选歌_类型"] = 选歌类型
-            状态["选歌_模式"] = 选歌模式
-            状态["大模式"] = 选歌类型
-            状态["子模式"] = 选歌模式
-            状态["songs子文件夹"] = 选歌类型
-            状态["选歌_恢复原始索引"] = int(恢复原始索引)
-            状态["选歌_恢复详情页"] = bool(恢复详情页)
-        except Exception:
-            pass
-
-        return {"切换到": "选歌", "禁用黑屏过渡": True}
 
     def 退出(self):
         try:
@@ -2979,22 +2745,12 @@ class 场景_结算(场景基类):
             os.path.join(根目录, "UI-img", "游戏界面", "结算", "新纪录.png")
         )
 
-        提示目录 = os.path.join(根目录, "UI-img", "游戏界面", "结算", "提示")
-        self._提示图集 = {}
-        for 名称 in ("下一把", "继续挑战", "是否续币", "游戏结束", "赠送一把"):
-            图 = _安全载图(os.path.join(提示目录, f"{名称}.png"))
-            if 图 is not None:
-                self._提示图集[名称] = 图
-
-        self._倒计时图集 = {}
-        数字目录 = os.path.join(提示目录, "数字-倒计时")
-        for idx in range(10):
-            图 = _安全载图(os.path.join(数字目录, f"{idx}.png"))
-            if 图 is not None:
-                self._倒计时图集[str(idx)] = 图
-
-        self._是按钮图 = _安全载图(os.path.join(提示目录, "是.png"))
-        self._否按钮图 = _安全载图(os.path.join(提示目录, "否.png"))
+        (
+            self._提示图集,
+            self._倒计时图集,
+            self._是按钮图,
+            self._否按钮图,
+        ) = 加载结算提示资源(根目录)
 
         小窗目录 = os.path.join(根目录, "UI-img", "游戏界面", "结算", "结算等级小窗")
         self._等级窗背景图 = _安全载图(os.path.join(小窗目录, "背景.png"))
