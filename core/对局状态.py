@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from core.等级经验 import 清空正式局经验缓存
+
 
 def _安全取状态字典(状态) -> dict:
     return 状态 if isinstance(状态, dict) else {}
@@ -63,6 +65,7 @@ def 初始化对局流程(状态):
     状态["对局_当前把数"] = 1
     状态["对局_S次数"] = 0
     状态["对局_赠送第四把"] = False
+    清空正式局经验缓存(状态)
 
 
 def 设置对局流程(

@@ -28,7 +28,6 @@ from scenes.场景_子模式 import 场景_子模式
 from scenes.场景_选歌 import 场景_选歌
 from scenes.场景_加载页 import 场景_加载页
 from scenes.场景_结算 import 场景_结算
-from scenes.场景_中转提示 import 场景_中转提示
 from scenes.场景_谱面播放器 import 场景_谱面播放器
 from ui.点击特效 import 序列帧特效资源, 全局点击特效管理器
 from ui.场景过渡 import 公共黑屏过渡,公共丝滑入场
@@ -1457,7 +1456,6 @@ def 主函数():
         "选歌": 场景_选歌,
         "加载页": 场景_加载页,
         "结算": 场景_结算,
-        "中转提示": 场景_中转提示,
         "谱面播放器": 场景_谱面播放器,
     }
 
@@ -2341,7 +2339,7 @@ def 主函数():
 
 
     def _当前场景允许非游戏菜单() -> bool:
-        return bool(当前场景名 not in ("谱面播放器", "结算", "中转提示"))
+        return bool(当前场景名 not in ("谱面播放器", "结算"))
 
     def _获取当前目标帧率() -> int:
         try:
@@ -2524,7 +2522,7 @@ def 主函数():
             and (not bool(选歌ESC菜单宿主.is_open()))
             and (not bool(开发调试菜单开启))
             and (not 过渡.是否进行中())
-            and 当前场景名 not in ("谱面播放器", "结算", "中转提示")
+            and 当前场景名 not in ("谱面播放器", "结算")
         ):
             更新检查状态["已提示"] = True
             if _弹窗提示软件更新(
