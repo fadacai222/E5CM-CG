@@ -3,7 +3,7 @@ import os
 import sys
 import re
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Dict, List, Optional, Tuple
 
 import pygame
@@ -53,13 +53,14 @@ from core.对局状态 import 取当前关卡, 取累计S数, 是否赠送第四
 from core.工具 import 绘制底部联网与信用
 from scenes.场景基类 import 场景基类
 from ui.game_esc_menu import GameEscMenuController
-from ui.准备就绪动画 import (
+from ui.结算前成就动画 import 结算前成就动画控制器
+from ui.准备动画 import (
     读取准备动画设置,
     加载准备动画图片,
     计算准备动画时间轴,
-    计算准备动画区域,
     计算准备动画总时长,
     绘制准备就绪动画,
+    全屏透明叠加层,
 )
 
 
@@ -1248,11 +1249,16 @@ class 场景_谱面播放器(场景基类):
         self._准备动画基础场景图: Optional[pygame.Surface] = None
         self._准备动画判定区图层: Optional[pygame.Surface] = None
         self._准备动画判定区矩形: Optional[pygame.Rect] = None
+        self._准备动画顶部HUD图层: Optional[pygame.Surface] = None
+        self._准备动画顶部HUD矩形: Optional[pygame.Rect] = None
         self._准备动画绘制缓存: Dict[str, Any] = {}
+        self._准备动画叠加层 = 全屏透明叠加层()
         self._准备动画图: Dict[int, pygame.Surface] = {}
         self._准备音效 = None
         self._准备音效通道 = None
         self._准备音效已播放 = False
+        self._结算前成就音效 = None
+        self._结算前成就音效通道 = None
         self._准备动画动态背景预展示秒: float = 3.0
         self._准备动画动态背景预展示完成: bool = True
         self._默认背景视频目录: str = os.path.join(
@@ -1289,6 +1295,9 @@ class 场景_谱面播放器(场景基类):
         self._退场黑屏开始秒: float = 0.0
         self._退场黑屏时长秒: float = 1.0
         self._退场黑屏结果: Optional[dict] = None
+        self._结算前成就动画 = 结算前成就动画控制器(_取项目根目录())
+        self._结算前成就动画捕获输入 = None
+        self._结算前成就动画捕获输入右 = None
         self._联网原图: Optional[pygame.Surface] = None
         self._双踏板左轨道中心列表: List[int] = []
         self._双踏板右轨道中心列表: List[int] = []
@@ -1351,17 +1360,21 @@ class 场景_谱面播放器(场景基类):
             ) + f"GPU管线初始化失败：{type(异常).__name__} {异常}"
 
     def 绘制GPU叠加(self, 显示后端):
-        if not bool(getattr(self, "_启用GPU谱面管线", False)):
+        if bool(getattr(self, "_退场黑屏开启", False)):
             return
-        if self._GPU谱面渲染器 is None:
+        if self._准备动画激活中():
+            try:
+                叠加层 = getattr(self, "_准备动画叠加层", None)
+                if 叠加层 is not None:
+                    叠加层.绘制到显示后端(显示后端)
+            except Exception:
+                pass
             return
         if bool(getattr(self, "_暂停菜单开启", False)):
             return
-        if bool(getattr(self, "_退场黑屏开启", False)):
+        if not bool(getattr(self, "_启用GPU谱面管线", False)):
             return
-        if bool(getattr(self, "_显示准备动画", False)) and (
-            not bool(getattr(self, "_准备动画已完成", True))
-        ):
+        if self._GPU谱面渲染器 is None:
             return
         try:
             self._GPU谱面渲染器.绘制(显示后端)
@@ -1743,6 +1756,9 @@ class 场景_谱面播放器(场景基类):
         if bool(getattr(self, "_显示准备动画", False)) and (
             not bool(getattr(self, "_准备动画已完成", True))
         ):
+            self._写入GPU上传提示(None, True)
+            return
+        if bool(getattr(self._结算前成就动画, "是否激活", lambda: False)()):
             self._写入GPU上传提示(None, True)
             return
 
@@ -2627,6 +2643,23 @@ class 场景_谱面播放器(场景基类):
             return False
         return self._取准备动画动态背景预展示秒() > 0.0
 
+    def _准备动画激活中(self) -> bool:
+        return bool(getattr(self, "_显示准备动画", False)) and (
+            not bool(getattr(self, "_准备动画已完成", True))
+        )
+
+    def _清空准备动画叠加层(self, 重置: bool = False):
+        叠加层 = getattr(self, "_准备动画叠加层", None)
+        if 叠加层 is None:
+            return
+        try:
+            if bool(重置) and hasattr(叠加层, "重置"):
+                叠加层.重置()
+            elif hasattr(叠加层, "清空"):
+                叠加层.清空(清除画布=True)
+        except Exception:
+            pass
+
     def _绘制动态背景预览画面(
         self,
         屏幕: pygame.Surface,
@@ -3450,10 +3483,21 @@ class 场景_谱面播放器(场景基类):
         self._准备动画基础场景图 = None
         self._准备动画判定区图层 = None
         self._准备动画判定区矩形 = None
+        self._准备动画顶部HUD图层 = None
+        self._准备动画顶部HUD矩形 = None
         self._准备动画绘制缓存 = {}
+        self._清空准备动画叠加层()
         self._准备音效 = None
         self._准备音效通道 = None
         self._准备音效已播放 = False
+        self._结算前成就音效 = None
+        self._结算前成就音效通道 = None
+        try:
+            self._结算前成就动画.停止()
+        except Exception:
+            pass
+        self._结算前成就动画捕获输入 = None
+        self._结算前成就动画捕获输入右 = None
         self._双踏板强制判定线y = None
         self._双踏板入场Y锁定至秒 = 0.0
         self._双踏板入场锁定判定线y = None
@@ -3684,6 +3728,7 @@ class 场景_谱面播放器(场景基类):
         self._加载联网图标()
         self._准备动画图 = 加载准备动画图片(_取项目根目录())
         self._加载准备动画音效()
+        self._加载结算前成就音效()
 
         箭头文件 = str(设置箭头文件名 or "").strip()
         if not 箭头文件:
@@ -4024,7 +4069,10 @@ class 场景_谱面播放器(场景基类):
                     self._准备动画背景无蒙版 = None
                     self._准备动画判定区图层 = None
                     self._准备动画判定区矩形 = None
+                    self._准备动画顶部HUD图层 = None
+                    self._准备动画顶部HUD矩形 = None
                     self._准备动画绘制缓存 = {}
+                    self._清空准备动画叠加层()
                 return None
             if not bool(self._准备音效已播放):
                 try:
@@ -4042,7 +4090,10 @@ class 场景_谱面播放器(场景基类):
                 self._准备动画背景无蒙版 = None
                 self._准备动画判定区图层 = None
                 self._准备动画判定区矩形 = None
+                self._准备动画顶部HUD图层 = None
+                self._准备动画顶部HUD矩形 = None
                 self._准备动画绘制缓存 = {}
+                self._清空准备动画叠加层()
                 try:
                     # 准备动画结束后强制重算一次布局，避免双踏板左右初始帧错位。
                     self._重算布局(强制=True)
@@ -4053,6 +4104,26 @@ class 场景_谱面播放器(场景基类):
                 except Exception:
                     pass
                 self.播放()
+            return None
+
+        if bool(getattr(self._结算前成就动画, "是否激活", lambda: False)()):
+            try:
+                self._结算前成就动画.更新(float(现在系统秒))
+            except Exception:
+                pass
+            self._更新动态背景模块(float(时间差), float(现在系统秒))
+            if self._操作反馈剩余秒 > 0.0:
+                self._操作反馈剩余秒 = max(0.0, self._操作反馈剩余秒 - 时间差)
+            try:
+                if bool(self._结算前成就动画.是否完成()):
+                    self._结算前成就动画.停止()
+                    return {
+                        "切换到": "结算",
+                        "载荷": self._构建结算载荷(失败=False),
+                        "禁用黑屏过渡": True,
+                    }
+            except Exception:
+                pass
             return None
 
         if self._播放中:
@@ -4148,6 +4219,9 @@ class 场景_谱面播放器(场景基类):
                 self._关闭暂停菜单(恢复播放=True)
                 return None
             return 结果
+
+        if bool(getattr(self._结算前成就动画, "是否激活", lambda: False)()):
+            return None
 
         if 事件.type != pygame.KEYDOWN:
             return None
@@ -4377,6 +4451,7 @@ class 场景_谱面播放器(场景基类):
                 GPU管线基础开关
                 and (not bool(getattr(self, "_暂停菜单开启", False)))
                 and (not bool(getattr(self, "_退场黑屏开启", False)))
+                and (not bool(getattr(self._结算前成就动画, "是否激活", lambda: False)()))
                 and (
                     (not bool(getattr(self, "_显示准备动画", False)))
                     or bool(getattr(self, "_准备动画已完成", True))
@@ -4386,6 +4461,12 @@ class 场景_谱面播放器(场景基类):
             GPU接管判定区绘制 = bool(GPU管线已启用)
             GPU接管击中特效绘制 = bool(GPU管线已启用)
             GPU接管计数动画绘制 = bool(GPU管线已启用)
+            结算动画隐藏顶部HUD = bool(
+                getattr(self._结算前成就动画, "需要隐藏顶部HUD", lambda: False)()
+            )
+            结算动画隐藏判定区 = bool(
+                getattr(self._结算前成就动画, "需要隐藏判定区", lambda: False)()
+            )
             if not bool(GPU管线基础开关):
                 self._GPU谱面诊断文本 = ""
                 self._GPU谱面诊断行列表 = []
@@ -4462,10 +4543,21 @@ class 场景_谱面播放器(场景基类):
                 GPU接管击中特效绘制=bool(GPU接管击中特效绘制),
                 GPU接管计数动画绘制=bool(GPU接管计数动画绘制),
                 GPU接管Stage绘制=bool(GPU管线已启用),
+                隐藏顶部HUD绘制=bool(结算动画隐藏顶部HUD),
+                隐藏判定区绘制=bool(结算动画隐藏判定区),
                 # ✅ 关键：把对象传给渲染器，让 JSON 控件负责“画”
                 圆环频谱对象=圆环频谱对象,
             )
             self._准备动画渲染输入 = 输入
+            try:
+                self._结算前成就动画捕获输入 = replace(
+                    输入,
+                    隐藏顶部HUD绘制=False,
+                    隐藏判定区绘制=False,
+                )
+            except Exception:
+                self._结算前成就动画捕获输入 = 输入
+            self._结算前成就动画捕获输入右 = None
 
             def _注入调试参数(渲染输入对象):
                 渲染输入对象.调试_血条颜色 = [
@@ -4557,8 +4649,18 @@ class 场景_谱面播放器(场景基类):
                     GPU接管击中特效绘制=bool(GPU接管击中特效绘制),
                     GPU接管计数动画绘制=bool(GPU接管计数动画绘制),
                     GPU接管Stage绘制=False,
+                    隐藏顶部HUD绘制=False,
+                    隐藏判定区绘制=bool(结算动画隐藏判定区),
                     圆环频谱对象=None,
                 )
+                try:
+                    self._结算前成就动画捕获输入右 = replace(
+                        输入右,
+                        隐藏顶部HUD绘制=False,
+                        隐藏判定区绘制=False,
+                    )
+                except Exception:
+                    self._结算前成就动画捕获输入右 = 输入右
                 _注入调试参数(输入右)
                 右软件分项统计 = _新建软件分项统计()
                 if bool(Note层灰度):
@@ -4627,23 +4729,8 @@ class 场景_谱面播放器(场景基类):
                 self._绘制按键提示(屏幕)
             self._绘制操作反馈(屏幕)
             self._绘制底部币值(屏幕)
-            if bool(getattr(self, "_显示准备动画", False)) and (
-                not bool(getattr(self, "_准备动画已完成", True))
-            ) and (not bool(self._准备动画处于动态预展示())):
-                需刷新基础场景图 = False
-                try:
-                    if (self._准备动画基础场景图 is None) or (
-                        self._准备动画基础场景图.get_size() != 屏幕.get_size()
-                    ):
-                        需刷新基础场景图 = True
-                except Exception:
-                    需刷新基础场景图 = True
-                if 需刷新基础场景图:
-                    try:
-                        self._准备动画基础场景图 = 屏幕.copy()
-                    except Exception:
-                        self._准备动画基础场景图 = None
             self._绘制准备动画(屏幕)
+            self._绘制结算前成就动画(屏幕, 当前系统秒)
             self._绘制暂停菜单(屏幕)
             if bool(self._退场黑屏开启):
                 try:
@@ -4802,10 +4889,57 @@ class 场景_谱面播放器(场景基类):
         self._同步旧血量比例()
         return bool(self._总血量HP <= 0)
 
+    def _取结算前成就动画类型(self) -> str:
+        统计 = (
+            dict(getattr(self, "_判定统计", {}) or {})
+            if isinstance(getattr(self, "_判定统计", None), dict)
+            else {}
+        )
+        perfect数 = int(统计.get("perfect", 0) or 0)
+        cool数 = int(统计.get("cool", 0) or 0)
+        good数 = int(统计.get("good", 0) or 0)
+        miss数 = int(统计.get("miss", 0) or 0)
+        if perfect数 > 0 and cool数 <= 0 and good数 <= 0 and miss数 <= 0:
+            return "full_perfect"
+        if miss数 <= 0 and (perfect数 + cool数 + good数) > 0:
+            return "full_combo"
+        return ""
+
+    def _尝试启动结算前成就动画(self) -> bool:
+        动画类型 = str(self._取结算前成就动画类型() or "").strip()
+        if not 动画类型:
+            return False
+        动画控制器 = getattr(self, "_结算前成就动画", None)
+        if 动画控制器 is None:
+            return False
+        try:
+            if bool(动画控制器.是否激活()):
+                return True
+        except Exception:
+            pass
+        try:
+            pygame.mixer.music.stop()
+        except Exception:
+            pass
+        self._播放中 = False
+        self._音频暂停中 = True
+        self._暂停菜单开启 = False
+        self._结算前成就动画捕获输入 = None
+        self._结算前成就动画捕获输入右 = None
+        try:
+            已启动 = bool(动画控制器.启动(动画类型, time.perf_counter()))
+        except Exception:
+            return False
+        if 已启动:
+            self._播放结算前成就音效()
+        return bool(已启动)
+
     def _立即失败结束(self):
         return self._开始退场到结算(失败=True)
 
     def _开始退场到结算(self, 失败: bool = False):
+        if (not bool(失败)) and self._尝试启动结算前成就动画():
+            return None
         try:
             pygame.mixer.music.stop()
         except Exception:
@@ -5512,9 +5646,45 @@ class 场景_谱面播放器(场景基类):
         except Exception:
             self._准备音效通道 = None
 
+    def _加载结算前成就音效(self):
+        self._结算前成就音效 = None
+        try:
+            音效路径 = os.path.join(
+                _取项目根目录(), "冷资源", "Buttonsound", "全连.mp3"
+            )
+            if pygame.mixer.get_init() and os.path.isfile(音效路径):
+                self._结算前成就音效 = pygame.mixer.Sound(音效路径)
+        except Exception:
+            self._结算前成就音效 = None
+
+    def _播放结算前成就音效(self):
+        try:
+            if self._结算前成就音效通道 is not None:
+                self._结算前成就音效通道.stop()
+        except Exception:
+            pass
+        try:
+            if self._结算前成就音效 is not None:
+                self._结算前成就音效通道 = self._结算前成就音效.play()
+        except Exception:
+            self._结算前成就音效通道 = None
+
     def _绘制准备动画(self, 屏幕: pygame.Surface):
-        if (not self._显示准备动画) or bool(self._准备动画已完成):
+        if not self._准备动画激活中():
+            self._清空准备动画叠加层()
             return
+
+        叠加层 = getattr(self, "_准备动画叠加层", None)
+        if 叠加层 is None:
+            return
+        try:
+            叠加画布 = 叠加层.开始绘制(屏幕.get_size())
+        except Exception:
+            叠加画布 = None
+        if not isinstance(叠加画布, pygame.Surface):
+            self._清空准备动画叠加层()
+            return
+        屏幕 = 叠加画布
 
         双踏板模式 = bool(getattr(self, "_是否双踏板模式", False))
         经过秒 = max(
@@ -5534,65 +5704,6 @@ class 场景_谱面播放器(场景基类):
                     pass
             return
         动画经过秒 = float(经过秒)
-        区域 = 计算准备动画区域(
-            屏幕.get_size(),
-            int(self._轨道起x),
-            int(self._轨道总宽),
-            int(self._取当前判定线y("左")),
-            int(self._箭头基准宽),
-            self._血条区域,
-        )
-        if 双踏板模式:
-            # 双踏板模式取消准备阶段“判定区裁切”效果，避免双侧判定区被局部裁切。
-            区域["判定区"] = pygame.Rect(0, 0, 0, 0)
-            self._准备动画判定区图层 = None
-            self._准备动画判定区矩形 = None
-        else:
-            try:
-                渲染器 = getattr(self, "_谱面渲染器", None)
-                渲染输入 = getattr(self, "_准备动画渲染输入", None)
-                if 渲染器 is not None and 渲染输入 is not None:
-                    屏幕尺寸 = tuple(int(v) for v in 屏幕.get_size())
-                    需重建判定区层 = False
-                    try:
-                        旧层 = getattr(self, "_准备动画判定区图层", None)
-                        if (
-                            not isinstance(旧层, pygame.Surface)
-                        ) or 旧层.get_size() != 屏幕尺寸:
-                            需重建判定区层 = True
-                    except Exception:
-                        需重建判定区层 = True
-
-                    if 需重建判定区层 and hasattr(渲染器, "取准备动画判定区图层"):
-                        try:
-                            层, 实际判定区 = 渲染器.取准备动画判定区图层(屏幕, 渲染输入)
-                            self._准备动画判定区图层 = (
-                                层 if isinstance(层, pygame.Surface) else None
-                            )
-                            self._准备动画判定区矩形 = (
-                                实际判定区.copy()
-                                if isinstance(实际判定区, pygame.Rect)
-                                else None
-                            )
-                        except Exception:
-                            self._准备动画判定区图层 = None
-                            self._准备动画判定区矩形 = None
-
-                    if self._准备动画判定区矩形 is None and hasattr(
-                        渲染器, "取准备动画判定区矩形"
-                    ):
-                        实际判定区 = 渲染器.取准备动画判定区矩形(屏幕, 渲染输入)
-                        if isinstance(实际判定区, pygame.Rect):
-                            self._准备动画判定区矩形 = 实际判定区.copy()
-
-                    if isinstance(self._准备动画判定区矩形, pygame.Rect):
-                        if (
-                            self._准备动画判定区矩形.w > 0
-                            and self._准备动画判定区矩形.h > 0
-                        ):
-                            区域["判定区"] = self._准备动画判定区矩形.copy()
-            except Exception:
-                pass
 
         try:
             动画设置 = dict(getattr(self, "_准备动画设置", {}) or {})
@@ -5611,20 +5722,55 @@ class 场景_谱面播放器(场景基类):
                     )
             except Exception:
                 pass
+        渲染器 = getattr(self, "_谱面渲染器", None)
+        渲染输入 = getattr(self, "_准备动画渲染输入", None)
+        if (渲染器 is not None) and (渲染输入 is not None):
+            try:
+                渲染器.绘制准备动画底层(
+                    屏幕,
+                    渲染输入,
+                    动画设置,
+                    float(动画经过秒),
+                    背景无蒙版图=getattr(self, "_准备动画背景无蒙版", None),
+                    绘制判定组=not bool(双踏板模式),
+                )
+            except Exception:
+                pass
         绘制准备就绪动画(
             屏幕=屏幕,
-            基础场景图=getattr(self, "_准备动画基础场景图", None),
-            背景无蒙版图=getattr(self, "_准备动画背景无蒙版", None),
+            基础场景图=None,
+            背景无蒙版图=None,
             准备图片=dict(getattr(self, "_准备动画图", {}) or {}),
             设置=动画设置,
             经过秒=float(动画经过秒),
-            判定区矩形=区域["判定区"],
-            顶部HUD矩形=区域["顶部HUD"],
-            判定区图层=(
-                None if 双踏板模式 else getattr(self, "_准备动画判定区图层", None)
-            ),
+            判定区矩形=pygame.Rect(0, 0, 0, 0),
+            顶部HUD矩形=pygame.Rect(0, 0, 0, 0),
+            顶部HUD图层=None,
+            判定区图层=None,
             运行缓存=getattr(self, "_准备动画绘制缓存", None),
+            仅前景=True,
         )
+
+    def _绘制结算前成就动画(self, 屏幕: pygame.Surface, 当前系统秒: float):
+        动画控制器 = getattr(self, "_结算前成就动画", None)
+        if 动画控制器 is None:
+            return
+        try:
+            if not bool(动画控制器.是否激活()):
+                return
+        except Exception:
+            return
+        try:
+            动画控制器.绘制(
+                屏幕,
+                当前系统秒=float(当前系统秒),
+                左渲染器=getattr(self, "_谱面渲染器", None),
+                左输入=getattr(self, "_结算前成就动画捕获输入", None),
+                右渲染器=getattr(self, "_谱面渲染器_右", None),
+                右输入=getattr(self, "_结算前成就动画捕获输入右", None),
+            )
+        except Exception:
+            pass
 
     def _加载皮肤图(self):
         if not os.path.isdir(self._皮肤目录):
@@ -6109,9 +6255,17 @@ class 场景_谱面播放器(场景基类):
         except Exception:
             pass
 
+        self._清空准备动画叠加层(重置=True)
+
         try:
             if self._准备音效通道 is not None:
                 self._准备音效通道.stop()
+        except Exception:
+            pass
+
+        try:
+            if self._结算前成就音效通道 is not None:
+                self._结算前成就音效通道.stop()
         except Exception:
             pass
 
@@ -6511,6 +6665,9 @@ class 场景_谱面播放器(场景基类):
         else:
             背景视频路径 = str(getattr(self, "_背景视频路径", "") or "")
 
+        是否全perfect = bool(perfect数 > 0 and cool数 <= 0 and good数 <= 0 and miss数 <= 0)
+        结算前演出类型 = "full_perfect" if 是否全perfect else ("full_combo" if miss数 <= 0 else "")
+
         return {
             "玩家序号": int(self._载荷.get("玩家序号", 1) or 1),
             "曲目名": str(self._歌曲名 or ""),
@@ -6541,7 +6698,9 @@ class 场景_谱面播放器(场景基类):
             "cool数": int(cool数),
             "good数": int(good数),
             "miss数": int(miss数),
+            "是否全perfect": bool(是否全perfect),
             "是否全连": bool(miss数 <= 0),
+            "结算前演出类型": str(结算前演出类型),
             "封面路径": str(self._载荷.get("封面路径", "") or ""),
             "星级": int(self._载荷.get("星级", 0) or 0),
             "背景图片路径": str(getattr(self, "_背景图片路径", "") or ""),

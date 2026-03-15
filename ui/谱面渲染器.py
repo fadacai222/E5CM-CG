@@ -68,6 +68,8 @@ class 渲染输入:
     GPU接管击中特效绘制: bool = False
     GPU接管计数动画绘制: bool = False
     GPU接管Stage绘制: bool = False
+    隐藏顶部HUD绘制: bool = False
+    隐藏判定区绘制: bool = False
 
     # ✅ 新增：圆环频谱对象（场景里创建并绑定音频，布局里只负责“画”）
     圆环频谱对象: Optional[Any] = None
@@ -494,6 +496,13 @@ class 谱面渲染器:
         self._GPUStage动态项缓存: List[Dict[str, Any]] = []
         self._GPUStage前景项缓存: List[Dict[str, Any]] = []
         self._GPUStage缓存屏幕尺寸: Optional[Tuple[int, int]] = None
+        self._准备动画遮罩缓存: Dict[Tuple[int, int, int], pygame.Surface] = {}
+        self._准备动画判定区组层缓存: Optional[pygame.Surface] = None
+        self._准备动画判定区组矩形缓存: Optional[pygame.Rect] = None
+        self._准备动画判定区组层签名: Optional[Tuple[Any, ...]] = None
+        self._准备动画顶部HUD组层缓存: Optional[pygame.Surface] = None
+        self._准备动画顶部HUD组矩形缓存: Optional[pygame.Rect] = None
+        self._准备动画顶部HUD组层签名: Optional[Tuple[Any, ...]] = None
         self._事件渲染缓存签名: Optional[Tuple[Any, ...]] = None
         self._事件渲染缓存值: Optional[Dict[str, Any]] = None
         self._头像灰度缓存key: Optional[Tuple[int, int, int]] = None
@@ -811,6 +820,55 @@ class 谱面渲染器:
         self._GPUStage动态项缓存 = []
         self._GPUStage前景项缓存 = []
         self._GPUStage缓存屏幕尺寸 = None
+        self._准备动画遮罩缓存 = {}
+        self._准备动画判定区组层缓存 = None
+        self._准备动画判定区组矩形缓存 = None
+        self._准备动画判定区组层签名 = None
+        self._准备动画顶部HUD组层缓存 = None
+        self._准备动画顶部HUD组矩形缓存 = None
+        self._准备动画顶部HUD组层签名 = None
+
+    def 绑定布局管理器(self, 布局管理器: Any):
+        self._布局管理器_谱面渲染器 = 布局管理器
+        self._顶部HUD静态层缓存 = None
+        self._顶部HUD静态层签名 = None
+        self._顶部HUD半静态层缓存 = None
+        self._顶部HUD半静态层签名 = None
+        self._notes静态层缓存 = None
+        self._notes静态层签名 = None
+        self._判定区层缓存 = None
+        self._判定区层签名 = None
+        self._判定区实际锚点缓存签名 = None
+        self._判定区实际锚点缓存值 = None
+        self._击中特效布局缓存签名 = None
+        self._击中特效布局缓存值 = None
+
+    def 设置调试击中特效预览(
+        self, 启用: bool, 当前谱面秒: float = 0.0, 轨道序号: int = 2
+    ):
+        try:
+            当前谱面秒 = float(当前谱面秒 or 0.0)
+        except Exception:
+            当前谱面秒 = 0.0
+        try:
+            轨道序号 = int(轨道序号)
+        except Exception:
+            轨道序号 = 2
+        if not (0 <= 轨道序号 < 5):
+            轨道序号 = 2
+
+        for i in range(5):
+            if (not 启用) or i != 轨道序号:
+                if float(self._击中特效循环到谱面秒[i]) > 0.0:
+                    self._击中特效循环到谱面秒[i] = -999.0
+                    self._击中特效进行秒[i] = -1.0
+                    self._击中特效开始谱面秒[i] = -999.0
+                continue
+
+            self._击中特效开始谱面秒[i] = float(当前谱面秒)
+            self._击中特效循环到谱面秒[i] = float(当前谱面秒) + 99999.0
+            if float(self._击中特效进行秒[i]) < 0.0:
+                self._击中特效进行秒[i] = 0.0
 
     def 取加载诊断(self) -> str:
         诊断 = []
@@ -1433,6 +1491,7 @@ class 谱面渲染器:
             tuple(int(v) for v in list(getattr(输入, "轨道中心列表", []) or [])[:5]),
             int(getattr(输入, "判定线y", 0) or 0),
             int(getattr(输入, "箭头目标宽", 0) or 0),
+            bool(getattr(输入, "隐藏判定区绘制", False)),
             bool(getattr(输入, "GPU接管判定区绘制", False)),
             tuple(
                 round(float(v), 4)
@@ -1443,24 +1502,25 @@ class 谱面渲染器:
             float(self._取游戏区参数().get("缩放", 1.0)),
             布局版本,
         )
-        if (
-            self._判定区层缓存 is None
-            or self._判定区层签名 != 判定区签名
-            or self._判定区层缓存.get_size() != 屏幕.get_size()
-        ):
-            self._判定区层缓存 = pygame.Surface(屏幕.get_size(), pygame.SRCALPHA)
-            self._判定区层缓存.fill((0, 0, 0, 0))
-            self._绘制判定区(self._判定区层缓存, 输入)
-            self._判定区层签名 = 判定区签名
-        判定区区域 = self._取判定区层矩形(屏幕, 输入)
-        if isinstance(判定区区域, pygame.Rect) and 判定区区域.w > 0 and 判定区区域.h > 0:
-            屏幕.blit(
-                self._判定区层缓存,
-                判定区区域.topleft,
-                area=判定区区域,
-            )
-        else:
-            屏幕.blit(self._判定区层缓存, (0, 0))
+        if not bool(getattr(输入, "隐藏判定区绘制", False)):
+            if (
+                self._判定区层缓存 is None
+                or self._判定区层签名 != 判定区签名
+                or self._判定区层缓存.get_size() != 屏幕.get_size()
+            ):
+                self._判定区层缓存 = pygame.Surface(屏幕.get_size(), pygame.SRCALPHA)
+                self._判定区层缓存.fill((0, 0, 0, 0))
+                self._绘制判定区(self._判定区层缓存, 输入)
+                self._判定区层签名 = 判定区签名
+            判定区区域 = self._取判定区层矩形(屏幕, 输入)
+            if isinstance(判定区区域, pygame.Rect) and 判定区区域.w > 0 and 判定区区域.h > 0:
+                屏幕.blit(
+                    self._判定区层缓存,
+                    判定区区域.topleft,
+                    area=判定区区域,
+                )
+            else:
+                屏幕.blit(self._判定区层缓存, (0, 0))
         分项统计["lane_static_ms"] += (time.perf_counter() - 判定区开始秒) * 1000.0
 
         # 4) 特效层（走 JSON；若 JSON 缺控件会兜底旧逻辑）
@@ -1726,12 +1786,55 @@ class 谱面渲染器:
         try:
             构建清单 = getattr(布局, "_构建渲染清单", None)
             if callable(构建清单):
-                项列表 = 构建清单(屏幕.get_size(), 上下文, 仅绘制根id="特效层组")
-                if isinstance(项列表, list):
-                    for 项 in 项列表:
+                判定项列表 = 构建清单(
+                    屏幕.get_size(), 上下文, 仅绘制根id="判定区组"
+                )
+                特效项列表 = 构建清单(
+                    屏幕.get_size(), 上下文, 仅绘制根id="特效层组"
+                )
+
+                判定组原点: Optional[Tuple[float, float]] = None
+                特效组原点: Optional[Tuple[float, float]] = None
+                判定区矩形表: Dict[int, pygame.Rect] = {}
+
+                if isinstance(判定项列表, list):
+                    for 项 in 判定项列表:
                         if not isinstance(项, dict):
                             continue
                         项id = str(项.get("id") or "")
+                        if 项id == "判定区组":
+                            try:
+                                判定组原点 = (
+                                    float(项.get("中心x", 0.0) or 0.0),
+                                    float(项.get("中心y", 0.0) or 0.0),
+                                )
+                            except Exception:
+                                判定组原点 = None
+                            continue
+                        if not 项id.startswith("判定区_"):
+                            continue
+                        try:
+                            轨道 = int(项id.rsplit("_", 1)[1])
+                        except Exception:
+                            continue
+                        矩形 = 项.get("rect")
+                        if isinstance(矩形, pygame.Rect):
+                            判定区矩形表[int(轨道)] = 矩形.copy()
+
+                if isinstance(特效项列表, list):
+                    for 项 in 特效项列表:
+                        if not isinstance(项, dict):
+                            continue
+                        项id = str(项.get("id") or "")
+                        if 项id == "特效层组":
+                            try:
+                                特效组原点 = (
+                                    float(项.get("中心x", 0.0) or 0.0),
+                                    float(项.get("中心y", 0.0) or 0.0),
+                                )
+                            except Exception:
+                                特效组原点 = None
+                            continue
                         if not 项id.startswith("击中特效_"):
                             continue
                         try:
@@ -1741,6 +1844,87 @@ class 谱面渲染器:
                         矩形 = 项.get("rect")
                         if isinstance(矩形, pygame.Rect):
                             结果[int(轨道)] = 矩形.copy()
+
+                if 判定区矩形表:
+                    try:
+                        比例 = float(布局.取全局缩放(屏幕.get_size()))
+                    except Exception:
+                        比例 = 1.0
+                    if 比例 <= 0.0:
+                        比例 = 1.0
+
+                    try:
+                        判定区目标宽_布局 = float(
+                            上下文.get("判定区_receptor宽_布局", 1.0) or 1.0
+                        )
+                    except Exception:
+                        判定区目标宽_布局 = 1.0
+                    try:
+                        特效目标宽_布局 = float(
+                            上下文.get("特效目标宽_布局", 40.0) or 40.0
+                        )
+                    except Exception:
+                        特效目标宽_布局 = 40.0
+                    宽度比例 = float(
+                        max(0.1, 特效目标宽_布局 / max(0.01, 判定区目标宽_布局))
+                    )
+
+                    try:
+                        特效显式x偏移 = float(
+                            上下文.get("击中特效偏移x_布局", 0.0) or 0.0
+                        ) * float(比例)
+                    except Exception:
+                        特效显式x偏移 = 0.0
+                    try:
+                        判定线y_游戏_布局 = float(
+                            上下文.get("判定线y_游戏_布局", 0.0) or 0.0
+                        )
+                    except Exception:
+                        判定线y_游戏_布局 = 0.0
+                    try:
+                        判定线y_特效_布局 = float(
+                            上下文.get("判定线y_特效_布局", 判定线y_游戏_布局)
+                            or 判定线y_游戏_布局
+                        )
+                    except Exception:
+                        判定线y_特效_布局 = 判定线y_游戏_布局
+                    特效显式y偏移 = float(
+                        (判定线y_特效_布局 - 判定线y_游戏_布局) * float(比例)
+                    )
+
+                    组偏移x = 0.0
+                    组偏移y = 0.0
+                    if 特效组原点 is not None and 判定组原点 is not None:
+                        组偏移x = float(特效组原点[0]) - float(判定组原点[0])
+                        组偏移y = float(特效组原点[1]) - float(判定组原点[1])
+
+                    for 轨道, 判定矩形 in 判定区矩形表.items():
+                        try:
+                            目标宽 = int(
+                                max(48, round(float(判定矩形.w) * float(宽度比例)))
+                            )
+                            中心x = int(
+                                round(
+                                    float(判定矩形.centerx)
+                                    + float(组偏移x)
+                                    + float(特效显式x偏移)
+                                )
+                            )
+                            中心y = int(
+                                round(
+                                    float(判定矩形.centery)
+                                    + float(组偏移y)
+                                    + float(特效显式y偏移)
+                                )
+                            )
+                            结果[int(轨道)] = pygame.Rect(
+                                int(中心x - 目标宽 // 2),
+                                int(中心y - 目标宽 // 2),
+                                int(目标宽),
+                                int(目标宽),
+                            )
+                        except Exception:
+                            continue
         except Exception:
             结果 = {}
 
@@ -2263,25 +2447,23 @@ class 谱面渲染器:
             return None
         return self._求布局清单并集矩形(项列表)
 
-    def 取准备动画判定区图层(
-        self, 屏幕: pygame.Surface, 输入: 渲染输入
+    def _取准备动画控件组图层(
+        self, 屏幕: pygame.Surface, 输入: 渲染输入, 根id: str
     ) -> Tuple[Optional[pygame.Surface], Optional[pygame.Rect]]:
-        """
-        给“准备就绪动画”用：
-        - 返回仅包含“判定区组”的透明图层（不含背景）
-        - 同时返回判定区组并集矩形，便于做缩放中心
-        """
         布局 = self._确保布局管理器()
         if 布局 is None:
             return None, None
 
         try:
-            if not 布局.是否存在控件("判定区组"):
+            if not 布局.是否存在控件(str(根id or "")):
                 return None, None
         except Exception:
             return None, None
 
-        上下文 = self._构建notes装饰上下文(屏幕, 输入)
+        if str(根id or "") == "顶部HUD":
+            上下文 = self._构建顶部HUD上下文(屏幕, 输入)
+        else:
+            上下文 = self._构建notes装饰上下文(屏幕, 输入)
         if not 上下文:
             return None, None
 
@@ -2289,8 +2471,8 @@ class 谱面渲染器:
             构建清单 = getattr(布局, "_构建渲染清单", None)
             if not callable(构建清单):
                 return None, None
-            项列表 = 构建清单(屏幕.get_size(), 上下文, 仅绘制根id="判定区组")
-            判定区矩形 = (
+            项列表 = 构建清单(屏幕.get_size(), 上下文, 仅绘制根id=str(根id or ""))
+            组矩形 = (
                 self._求布局清单并集矩形(项列表) if isinstance(项列表, list) else None
             )
         except Exception:
@@ -2299,16 +2481,224 @@ class 谱面渲染器:
         try:
             from ui.调试_谱面渲染器_渲染控件 import 调试状态
         except Exception:
-            return None, 判定区矩形
+            return None, 组矩形
 
         try:
             图层 = pygame.Surface(屏幕.get_size(), pygame.SRCALPHA)
             图层.fill((0, 0, 0, 0))
             调试 = 调试状态(显示全部边框=False, 选中控件id="")
-            布局.绘制(图层, 上下文, self._皮肤包, 调试=调试, 仅绘制根id="判定区组")
-            return 图层, 判定区矩形
+            布局.绘制(
+                图层,
+                上下文,
+                self._皮肤包,
+                调试=调试,
+                仅绘制根id=str(根id or ""),
+            )
+            return 图层, 组矩形
         except Exception:
-            return None, 判定区矩形
+            return None, 组矩形
+
+    def 取准备动画判定区图层(
+        self, 屏幕: pygame.Surface, 输入: 渲染输入
+    ) -> Tuple[Optional[pygame.Surface], Optional[pygame.Rect]]:
+        """
+        给“准备就绪动画”用：
+        - 返回仅包含“判定区组”的透明图层（不含背景）
+        - 同时返回判定区组并集矩形，便于做缩放中心
+        """
+        return self._取准备动画控件组图层(屏幕, 输入, "判定区组")
+
+    def 取准备动画顶部HUD图层(
+        self, 屏幕: pygame.Surface, 输入: 渲染输入
+    ) -> Tuple[Optional[pygame.Surface], Optional[pygame.Rect]]:
+        """
+        给“准备就绪动画”用：
+        - 返回仅包含“顶部HUD”的透明图层（不含背景）
+        - 同时返回顶部HUD并集矩形，便于做组级入场回放
+        """
+        return self._取准备动画控件组图层(屏幕, 输入, "顶部HUD")
+
+    def _取准备动画顶部HUD缓存签名(
+        self, 屏幕: pygame.Surface, 输入: 渲染输入
+    ) -> Tuple[Any, ...]:
+        血条区域 = getattr(输入, "血条区域", None)
+        if not isinstance(血条区域, pygame.Rect):
+            血条区域 = pygame.Rect(0, 0, 0, 0)
+        return (
+            tuple(int(v) for v in 屏幕.get_size()),
+            self._布局版本值(),
+            int(getattr(输入, "玩家序号", 1) or 1),
+            str(getattr(输入, "玩家昵称", "") or ""),
+            int(getattr(输入, "当前关卡", 1) or 1),
+            int(id(getattr(输入, "头像图", None))),
+            int(id(getattr(输入, "段位图", None))),
+            int(getattr(输入, "显示_分数", 0) or 0),
+            round(float(getattr(输入, "当前谱面秒", 0.0) or 0.0), 3),
+            round(float(getattr(输入, "总时长秒", 0.0) or 0.0), 3),
+            str(getattr(输入, "歌曲名", "") or ""),
+            int(getattr(输入, "星级", 0) or 0),
+            int(getattr(输入, "总血量HP", 0) or 0),
+            int(getattr(输入, "可见血量HP", 0) or 0),
+            bool(getattr(输入, "血条暴走", False)),
+            (
+                int(血条区域.x),
+                int(血条区域.y),
+                int(血条区域.w),
+                int(血条区域.h),
+            ),
+        )
+
+    def _取准备动画控件组缓存图层(
+        self, 屏幕: pygame.Surface, 输入: 渲染输入, 根id: str
+    ) -> Tuple[Optional[pygame.Surface], Optional[pygame.Rect]]:
+        根id = str(根id or "").strip()
+        if 根id == "判定区组":
+            当前签名 = ("判定区组",) + tuple(self._布局锚点缓存签名(屏幕, 输入))
+            if self._准备动画判定区组层签名 == 当前签名:
+                return self._准备动画判定区组层缓存, self._准备动画判定区组矩形缓存
+            图层, 矩形 = self.取准备动画判定区图层(屏幕, 输入)
+            self._准备动画判定区组层缓存 = 图层
+            self._准备动画判定区组矩形缓存 = 矩形.copy() if isinstance(矩形, pygame.Rect) else None
+            self._准备动画判定区组层签名 = 当前签名
+            return 图层, 矩形
+
+        if 根id == "顶部HUD":
+            当前签名 = ("顶部HUD",) + tuple(self._取准备动画顶部HUD缓存签名(屏幕, 输入))
+            if self._准备动画顶部HUD组层签名 == 当前签名:
+                return self._准备动画顶部HUD组层缓存, self._准备动画顶部HUD组矩形缓存
+            图层, 矩形 = self.取准备动画顶部HUD图层(屏幕, 输入)
+            self._准备动画顶部HUD组层缓存 = 图层
+            self._准备动画顶部HUD组矩形缓存 = 矩形.copy() if isinstance(矩形, pygame.Rect) else None
+            self._准备动画顶部HUD组层签名 = 当前签名
+            return 图层, 矩形
+
+        return self._取准备动画控件组图层(屏幕, 输入, 根id)
+
+    def _取准备动画遮罩层(
+        self, 尺寸: Tuple[int, int], alpha: int
+    ) -> Optional[pygame.Surface]:
+        a = int(max(0, min(255, int(alpha))))
+        if a <= 0:
+            return None
+        w = int(max(1, int(尺寸[0])))
+        h = int(max(1, int(尺寸[1])))
+        key = (w, h, a)
+        图 = self._准备动画遮罩缓存.get(key)
+        if isinstance(图, pygame.Surface):
+            return 图
+        try:
+            图 = pygame.Surface((w, h), pygame.SRCALPHA)
+            图.fill((0, 0, 0, a))
+            if len(self._准备动画遮罩缓存) > 32:
+                self._准备动画遮罩缓存.clear()
+            self._准备动画遮罩缓存[key] = 图
+            return 图
+        except Exception:
+            return None
+
+    def 绘制准备动画底层(
+        self,
+        屏幕: pygame.Surface,
+        输入: 渲染输入,
+        设置: Dict[str, Any],
+        经过秒: float,
+        背景无蒙版图: Optional[pygame.Surface] = None,
+        绘制判定组: bool = True,
+    ) -> Dict[str, float]:
+        try:
+            from ui.准备动画 import (
+                计算准备动画时间轴,
+                计算透明控件组正放参数,
+                绘制透明控件组回放,
+            )
+        except Exception:
+            return {}
+
+        if not isinstance(屏幕, pygame.Surface):
+            return {}
+
+        时间轴 = 计算准备动画时间轴(dict(设置 or {}))
+        总时长 = float(时间轴.get("总时长", 0.0))
+        if 经过秒 < 0.0 or 经过秒 > 总时长:
+            return 时间轴
+
+        屏宽, 屏高 = 屏幕.get_size()
+        屏幕.fill((0, 0, 0))
+
+        背景开始 = float(时间轴["背景开始"])
+        背景结束 = float(时间轴["背景结束"])
+        背景t = max(0.0, min(1.0, (经过秒 - 背景开始) / max(0.001, 背景结束 - 背景开始)))
+        if isinstance(背景无蒙版图, pygame.Surface):
+            try:
+                屏幕.blit(背景无蒙版图, (0, 0))
+            except Exception:
+                pass
+            背景遮黑alpha = int(round(255.0 * (1.0 - (背景t * 背景t * (3.0 - 2.0 * 背景t)))))
+            遮黑层 = self._取准备动画遮罩层((屏宽, 屏高), 背景遮黑alpha)
+            if isinstance(遮黑层, pygame.Surface):
+                屏幕.blit(遮黑层, (0, 0))
+
+        蒙版开始 = float(时间轴["蒙版开始"])
+        蒙版结束 = float(时间轴["蒙版结束"])
+        蒙版t = max(0.0, min(1.0, (经过秒 - 蒙版开始) / max(0.001, 蒙版结束 - 蒙版开始)))
+        蒙版目标alpha = int(max(0.0, min(255.0, float((设置 or {}).get("背景蒙版透明度", 224.0)))))
+        if 蒙版t > 0.0:
+            蒙版alpha = int(round(蒙版目标alpha * (蒙版t * 蒙版t * (3.0 - 2.0 * 蒙版t))))
+            蒙版层 = self._取准备动画遮罩层((屏宽, 屏高), 蒙版alpha)
+            if isinstance(蒙版层, pygame.Surface):
+                屏幕.blit(蒙版层, (0, 0))
+
+        if bool(绘制判定组):
+            判定区开始 = float(时间轴["判定区开始"])
+            判定区结束 = float(时间轴["判定区结束"])
+            判定区t = max(0.0, min(1.0, (经过秒 - 判定区开始) / max(0.001, 判定区结束 - 判定区开始)))
+            if 判定区t > 0.0:
+                判定区图层, 判定区矩形 = self._取准备动画控件组缓存图层(屏幕, 输入, "判定区组")
+                if isinstance(判定区图层, pygame.Surface) and isinstance(判定区矩形, pygame.Rect):
+                    try:
+                        源图 = 判定区图层.subsurface(判定区矩形).copy().convert_alpha()
+                        判定alpha = int(round(255.0 * (判定区t * 判定区t * (3.0 - 2.0 * 判定区t))))
+                        判定缩放 = 1.18 - 0.18 * (1.0 - pow(1.0 - 判定区t, 3))
+                        目标宽 = int(max(2, round(float(源图.get_width()) * 判定缩放)))
+                        目标高 = int(max(2, round(float(源图.get_height()) * 判定缩放)))
+                        图2 = pygame.transform.smoothscale(源图, (目标宽, 目标高)).convert_alpha()
+                        图2.set_alpha(判定alpha)
+                        rr = 图2.get_rect(center=(判定区矩形.centerx, 判定区矩形.centery))
+                        屏幕.blit(图2, rr.topleft)
+                    except Exception:
+                        pass
+
+        血条组开始 = float(时间轴["血条组开始"])
+        血条组结束 = float(时间轴["血条组结束"])
+        血条组t = max(0.0, min(1.0, (经过秒 - 血条组开始) / max(0.001, 血条组结束 - 血条组开始)))
+        if 血条组t > 0.0:
+            顶部HUD图层, 顶部HUD矩形 = self._取准备动画控件组缓存图层(屏幕, 输入, "顶部HUD")
+            if isinstance(顶部HUD图层, pygame.Surface) and isinstance(顶部HUD矩形, pygame.Rect):
+                血条回放参数 = 计算透明控件组正放参数(
+                    进度=血条组t,
+                    起始偏移y=-float(顶部HUD矩形.h + 36),
+                    结束偏移y=0.0,
+                    起始alpha=0.0,
+                    结束alpha=255.0,
+                )
+                绘制透明控件组回放(屏幕, 顶部HUD图层, 血条回放参数)
+
+        引导开始 = float(时间轴["引导开始"])
+        引导入场结束 = float(时间轴["引导入场结束"])
+        引导出场开始 = float(时间轴["引导出场开始"])
+        引导出场结束 = float(时间轴["引导出场结束"])
+        引导暗度 = float(max(0.0, min(1.0, float((设置 or {}).get("场景引导暗度", 0.50)))))
+        引导入场t = max(0.0, min(1.0, (经过秒 - 引导开始) / max(0.001, 引导入场结束 - 引导开始)))
+        引导出场t = max(0.0, min(1.0, (经过秒 - 引导出场开始) / max(0.001, 引导出场结束 - 引导出场开始)))
+        当前暗化 = (引导入场t * 引导入场t * (3.0 - 2.0 * 引导入场t)) * (
+            1.0 - (引导出场t * 引导出场t * (3.0 - 2.0 * 引导出场t))
+        ) * 引导暗度
+        if 当前暗化 > 0.0:
+            引导暗层 = self._取准备动画遮罩层((屏宽, 屏高), int(round(255.0 * 当前暗化)))
+            if isinstance(引导暗层, pygame.Surface):
+                屏幕.blit(引导暗层, (0, 0))
+
+        return 时间轴
 
     def _取固定资源图(self, 路径: str) -> Optional[pygame.Surface]:
         路径 = str(路径 or "").strip()
@@ -3021,24 +3411,15 @@ class 谱面渲染器:
             self._布局管理器_谱面渲染器 = None
         return getattr(self, "_布局管理器_谱面渲染器", None)
 
-    def _绘制血条(
-        self,
-        屏幕: pygame.Surface,
-        输入: 渲染输入,
-        字体: pygame.font.Font,
-        小字体: pygame.font.Font,
-    ) -> Dict[str, float]:
-        分项统计 = self._新建软件分项统计()
-        try:
-            from ui.调试_谱面渲染器_渲染控件 import 调试状态
-        except Exception:
-            return 分项统计
-
+    def _构建顶部HUD上下文(
+        self, 屏幕: pygame.Surface, 输入: 渲染输入
+    ) -> Dict[str, Any]:
         布局 = self._确保布局管理器()
         if 布局 is None:
-            return 分项统计
+            return {}
 
-        # 倒计时
+        上下文 = dict(self._构建notes装饰上下文(屏幕, 输入) or {})
+
         try:
             剩余秒 = float(max(0.0, float(输入.总时长秒) - float(输入.当前谱面秒)))
             分 = int(剩余秒 // 60)
@@ -3047,7 +3428,6 @@ class 谱面渲染器:
         except Exception:
             倒计时 = "00:00"
 
-        # 血量最终显示（待机演示）
         try:
             相位 = float(pygame.time.get_ticks()) / 1000.0
         except Exception:
@@ -3072,8 +3452,10 @@ class 谱面渲染器:
             星级 = 0
         星级文本 = f"{max(0, 星级)}★" if 星级 > 0 else ""
 
-        # ✅ 布局坐标系 key
-        比例 = float(布局.取全局缩放(屏幕.get_size()))
+        try:
+            比例 = float(布局.取全局缩放(屏幕.get_size()))
+        except Exception:
+            比例 = 1.0
         if 比例 <= 0:
             比例 = 1.0
         轨道中心列表_布局 = [float(x) / 比例 for x in (输入.轨道中心列表 or [])]
@@ -3082,57 +3464,63 @@ class 谱面渲染器:
         轨道中心间距_布局 = 0.0
         try:
             if len(轨道中心列表_布局) >= 2:
-                轨道中心间距_布局 = float(轨道中心列表_布局[1] - 轨道中心列表_布局[0])
+                轨道中心间距_布局 = float(
+                    轨道中心列表_布局[1] - 轨道中心列表_布局[0]
+                )
         except Exception:
             轨道中心间距_布局 = 0.0
 
         游戏区参数 = self._取游戏区参数()
         调试显示游戏区控制 = bool(getattr(输入, "调试_显示游戏区控制", False))
-
         圆环频谱对象 = getattr(输入, "圆环频谱对象", None)
-        圆环频谱启用 = bool(圆环频谱对象 is not None)
 
-        上下文 = {
-            "玩家序号": int(getattr(输入, "玩家序号", 1) or 1),
-            "玩家昵称": str(getattr(输入, "玩家昵称", "") or ""),
-            "当前关卡": int(getattr(输入, "当前关卡", 1) or 1),
-            "头像图": self._取头像图_按血量状态(输入),
-            "段位图": getattr(输入, "段位图", None),
-            "显示_分数": int(当前分数),
-            "分数_缩放": float(self._取分数缩放()),
-            "倒计时": 倒计时,
-            "血量最终显示": 血量最终显示,
-            "总血量HP": int(getattr(输入, "总血量HP", 0) or 0),
-            "可见血量HP": int(getattr(输入, "可见血量HP", 0) or 0),
-            "血条暴走": bool(getattr(输入, "血条暴走", False)),
-            "歌曲名": 歌曲名,
-            "歌曲星级文本": 星级文本,
-            # 计数默认关闭（计数单独在 _绘制计数动画组 里画）
-            "计数_启用": False,
-            "计数_缩放": 1.0,
-            "计数_透明": 1.0,
-            "计数_combo": 0,
-            "计数_判定帧": "",
-            # ✅ 给 JSON 动态定位用
-            "轨道中心列表_布局": 轨道中心列表_布局,
-            "判定线y_布局": 判定线y_布局,
-            "箭头目标宽_布局": 箭头目标宽_布局,
-            "轨道中心间距_布局": 轨道中心间距_布局,
-            # ✅ 调试控制
-            "_调试显示游戏区控制": bool(调试显示游戏区控制),
-            "游戏区_y偏移": float(游戏区参数.get("y偏移", -12.0)),
-            "游戏区_缩放": float(游戏区参数.get("缩放", 1.0)),
-            "游戏区_hold宽度系数": float(游戏区参数.get("hold宽度系数", 0.96)),
-            "游戏区_判定区宽度系数": float(游戏区参数.get("判定区宽度系数", 1.08)),
-            "游戏区_击中特效宽度系数": float(游戏区参数.get("击中特效宽度系数", 2.6)),
-            "游戏区_击中特效偏移x": float(游戏区参数.get("击中特效偏移x", 0.0)),
-            "游戏区_击中特效偏移y": float(游戏区参数.get("击中特效偏移y", 0.0)),
-            # ✅ 给“圆环频谱”控件用（布局里画，不在场景里画）
-            "当前谱面秒": float(getattr(输入, "当前谱面秒", 0.0) or 0.0),
-            "调试_时间秒": float(getattr(输入, "当前谱面秒", 0.0) or 0.0),
-            "圆环频谱对象": 圆环频谱对象,
-            "圆环频谱_启用": bool(圆环频谱启用),
-        }
+        上下文.update(
+            {
+                "玩家序号": int(getattr(输入, "玩家序号", 1) or 1),
+                "玩家昵称": str(getattr(输入, "玩家昵称", "") or ""),
+                "当前关卡": int(getattr(输入, "当前关卡", 1) or 1),
+                "头像图": self._取头像图_按血量状态(输入),
+                "段位图": getattr(输入, "段位图", None),
+                "显示_分数": int(当前分数),
+                "分数_缩放": float(self._取分数缩放()),
+                "倒计时": 倒计时,
+                "血量最终显示": 血量最终显示,
+                "总血量HP": int(getattr(输入, "总血量HP", 0) or 0),
+                "可见血量HP": int(getattr(输入, "可见血量HP", 0) or 0),
+                "血条暴走": bool(getattr(输入, "血条暴走", False)),
+                "歌曲名": 歌曲名,
+                "歌曲星级文本": 星级文本,
+                "计数_启用": False,
+                "计数_缩放": 1.0,
+                "计数_透明": 1.0,
+                "计数_combo": 0,
+                "计数_判定帧": "",
+                "轨道中心列表_布局": 轨道中心列表_布局,
+                "判定线y_布局": 判定线y_布局,
+                "箭头目标宽_布局": 箭头目标宽_布局,
+                "轨道中心间距_布局": 轨道中心间距_布局,
+                "_调试显示游戏区控制": bool(调试显示游戏区控制),
+                "游戏区_y偏移": float(游戏区参数.get("y偏移", -12.0)),
+                "游戏区_缩放": float(游戏区参数.get("缩放", 1.0)),
+                "游戏区_hold宽度系数": float(游戏区参数.get("hold宽度系数", 0.96)),
+                "游戏区_判定区宽度系数": float(
+                    游戏区参数.get("判定区宽度系数", 1.08)
+                ),
+                "游戏区_击中特效宽度系数": float(
+                    游戏区参数.get("击中特效宽度系数", 2.6)
+                ),
+                "游戏区_击中特效偏移x": float(
+                    游戏区参数.get("击中特效偏移x", 0.0)
+                ),
+                "游戏区_击中特效偏移y": float(
+                    游戏区参数.get("击中特效偏移y", 0.0)
+                ),
+                "当前谱面秒": float(getattr(输入, "当前谱面秒", 0.0) or 0.0),
+                "调试_时间秒": float(getattr(输入, "当前谱面秒", 0.0) or 0.0),
+                "圆环频谱对象": 圆环频谱对象,
+                "圆环频谱_启用": bool(圆环频谱对象 is not None),
+            }
+        )
 
         try:
             调试血条颜色 = getattr(输入, "调试_血条颜色", None)
@@ -3224,9 +3612,7 @@ class 谱面渲染器:
         try:
             血条值矩形 = self._取布局控件矩形(布局, 屏幕, 上下文, "顶部HUD", "血条值")
             血条值定义 = getattr(布局, "_控件索引", {}).get("血条值", {})
-            内边距 = (
-                血条值定义.get("内边距", {}) if isinstance(血条值定义, dict) else {}
-            )
+            内边距 = 血条值定义.get("内边距", {}) if isinstance(血条值定义, dict) else {}
             if isinstance(血条值矩形, pygame.Rect):
                 try:
                     边距缩放 = float(max(0.01, 比例))
@@ -3248,6 +3634,31 @@ class 谱面渲染器:
                 上下文["血条填充区域h"] = int(内矩形.h)
         except Exception:
             pass
+
+        return 上下文
+
+    def _绘制血条(
+        self,
+        屏幕: pygame.Surface,
+        输入: 渲染输入,
+        字体: pygame.font.Font,
+        小字体: pygame.font.Font,
+    ) -> Dict[str, float]:
+        分项统计 = self._新建软件分项统计()
+        if bool(getattr(输入, "隐藏顶部HUD绘制", False)):
+            return 分项统计
+        try:
+            from ui.调试_谱面渲染器_渲染控件 import 调试状态
+        except Exception:
+            return 分项统计
+
+        布局 = self._确保布局管理器()
+        if 布局 is None:
+            return 分项统计
+
+        上下文 = self._构建顶部HUD上下文(屏幕, 输入)
+        if not 上下文:
+            return 分项统计
 
         调试 = 调试状态(显示全部边框=False, 选中控件id="")
 
@@ -3410,7 +3821,7 @@ class 谱面渲染器:
             except Exception:
                 return 分项统计
 
-        if 调试显示游戏区控制:
+        if bool(上下文.get("_调试显示游戏区控制", False)):
             try:
                 布局.绘制(
                     屏幕, 上下文, self._皮肤包, 调试=调试, 仅绘制根id="调试控制组"
@@ -3600,6 +4011,46 @@ class 谱面渲染器:
             return None
         return self._求布局清单并集矩形(项列表)
 
+    def 取调试控件组矩形表(
+        self, 屏幕: pygame.Surface, 输入: 渲染输入
+    ) -> Dict[str, pygame.Rect]:
+        结果: Dict[str, pygame.Rect] = {}
+
+        布局 = self._确保布局管理器()
+        if 布局 is not None:
+            try:
+                构建清单 = getattr(布局, "_构建渲染清单", None)
+                if callable(构建清单):
+                    notes上下文 = self._构建notes装饰上下文(屏幕, 输入)
+                    if isinstance(notes上下文, dict):
+                        判定区项列表 = 构建清单(
+                            屏幕.get_size(), notes上下文, 仅绘制根id="判定区组"
+                        )
+                        if isinstance(判定区项列表, list):
+                            判定区矩形 = self._求布局清单并集矩形(判定区项列表)
+                            if isinstance(判定区矩形, pygame.Rect):
+                                结果["判定区组"] = 判定区矩形
+            except Exception:
+                pass
+
+        特效矩形表 = self._取击中特效布局矩形表(屏幕, 输入)
+        if 特效矩形表:
+            特效矩形列表 = [rr.copy() for rr in 特效矩形表.values()]
+            if 特效矩形列表:
+                特效并集 = 特效矩形列表[0].copy()
+                for rr in 特效矩形列表[1:]:
+                    特效并集.union_ip(rr)
+                结果["特效层组"] = 特效并集
+
+        计数构建结果 = self._构建计数动画组上下文(屏幕, 输入)
+        if isinstance(计数构建结果, tuple) and len(计数构建结果) == 2:
+            计数布局, 计数上下文 = 计数构建结果
+            计数矩形 = self._取计数动画组矩形(屏幕, 计数布局, 计数上下文)
+            if isinstance(计数矩形, pygame.Rect):
+                结果["计数动画组"] = 计数矩形
+
+        return {str(k): v.copy() for k, v in 结果.items() if isinstance(v, pygame.Rect)}
+
     def _取计数动画组渲染清单(
         self, 屏幕: pygame.Surface, 布局: Any, 上下文: Dict[str, Any]
     ) -> List[Dict[str, Any]]:
@@ -3628,6 +4079,10 @@ class 谱面渲染器:
             布局.绘制(屏幕, 上下文, self._皮肤包, 调试=调试, 仅绘制根id="计数动画组")
         except Exception:
             return
+
+    def 绘制调试特效与计数组(self, 屏幕: pygame.Surface, 输入: 渲染输入):
+        self._绘制击中特效(屏幕, 输入)
+        self._绘制计数动画组(屏幕, 输入)
 
     def 取GPU计数动画图层(
         self, 屏幕: pygame.Surface, 输入: 渲染输入
@@ -3733,6 +4188,8 @@ class 谱面渲染器:
 
 
     def _绘制判定区(self, 屏幕: pygame.Surface, 输入: 渲染输入):
+        if bool(getattr(输入, "隐藏判定区绘制", False)):
+            return
         if bool(getattr(输入, "GPU接管判定区绘制", False)):
             return
 

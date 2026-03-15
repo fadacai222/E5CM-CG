@@ -6605,6 +6605,7 @@ class 选歌游戏:
         if 目标页 == self.当前页:
             return
 
+        self._播放翻页音效()
         self.动画中 = True
         self.动画开始时间 = time.time()
         self.动画方向 = (
@@ -7743,6 +7744,8 @@ class 选歌游戏:
 
         # 公用按钮音效 + 公用点击特效
         self._按钮音效 = None
+        self._翻页音效 = None
+        self._翻页音效通道 = None
         self._特效_按钮 = None
         self._特效_大图确认 = None
 
@@ -7828,6 +7831,16 @@ class 选歌游戏:
                 self._按钮音效 = None
 
         # -------------------------
+        # 初始化：翻页音效
+        # -------------------------
+        翻页音效路径 = _资源路径("冷资源", "Buttonsound", "翻页.mp3")
+        try:
+            if pygame.mixer.get_init() and os.path.isfile(翻页音效路径):
+                self._翻页音效 = pygame.mixer.Sound(翻页音效路径)
+        except Exception:
+            self._翻页音效 = None
+
+        # -------------------------
         # 初始化：按钮点击“截图缩放淡出”特效
         # -------------------------
         if 公用按钮点击特效:
@@ -7868,6 +7881,20 @@ class 选歌游戏:
             self._按钮音效.播放()
         except Exception:
             pass
+
+    def _播放翻页音效(self):
+        self._确保公共交互()
+        if self._翻页音效 is None:
+            return
+        try:
+            if self._翻页音效通道 is not None:
+                self._翻页音效通道.stop()
+        except Exception:
+            pass
+        try:
+            self._翻页音效通道 = self._翻页音效.play()
+        except Exception:
+            self._翻页音效通道 = None
 
     def _启动过渡(
         self,
